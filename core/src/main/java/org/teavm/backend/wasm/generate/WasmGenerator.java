@@ -25,6 +25,7 @@ import org.teavm.backend.wasm.model.WasmFunction;
 import org.teavm.backend.wasm.model.WasmLocal;
 import org.teavm.backend.wasm.model.WasmType;
 import org.teavm.backend.wasm.model.expression.WasmBlock;
+import org.teavm.backend.wasm.model.expression.WasmUnreachable;
 import org.teavm.interop.Export;
 import org.teavm.interop.Import;
 import org.teavm.model.AnnotationReader;
@@ -126,7 +127,15 @@ public class WasmGenerator {
             function.setImportName(importedMethod.name);
             function.setImportModule(importedMethod.module);
         } else {
-            function.setImportName("<unknown>");
+            // Unbacked native (no @Import, no generator) that conservative
+            // reachability pulled into a WASI module. There is no host to bind
+            // a "<unknown>" import to, so emit a self-contained trap instead of
+            // an unsatisfiable import: a module that merely *references* such a
+            // native (e.g. java.awt / java.net.InetAddress / java.nio.file
+            // natives reachable but never executed) still links and runs; only
+            // an actual call traps, which is the WASI-correct behavior for a
+            // genuinely unsupported native.
+            function.getBody().add(new WasmUnreachable());
         }
 
         return function;

@@ -22,6 +22,7 @@ import java.io.Serializable;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
+import org.teavm.classlib.PlatformDetector;
 import org.teavm.classlib.java.net.impl.TDummyStreamHandler;
 import org.teavm.classlib.java.net.impl.TXHRStreamHandler;
 
@@ -294,7 +295,18 @@ public final class TURL implements Serializable {
         switch (protocol) {
             case "http":
             case "https":
-                strmHandler = new TXHRStreamHandler();
+                // The XHR-backed handler is JavaScript-only (it drives
+                // org.teavm.jso.ajax.XMLHttpRequest through an @Async native).
+                // On non-JS backends (WebAssembly/C) its async continuation
+                // lowers to malformed IR, so gate it behind the compile-time
+                // PlatformDetector: WASI/C has no java.net HTTP stack, so those
+                // backends get the dummy handler (throws on actual use) and the
+                // whole XHR class graph is dead-code-eliminated.
+                if (PlatformDetector.isJavaScript()) {
+                    strmHandler = new TXHRStreamHandler();
+                } else {
+                    strmHandler = new TDummyStreamHandler(protocol.equals("https") ? 443 : 80);
+                }
                 break;
             case "ftp":
                 strmHandler = new TDummyStreamHandler(21);
