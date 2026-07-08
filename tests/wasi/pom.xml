@@ -5,7 +5,7 @@
   <parent>
     <groupId>com.fermyon</groupId>
     <artifactId>teavm-tests</artifactId>
-    <version>0.2.7</version>
+    <version>0.2.7-spooler1</version>
   </parent>
   <artifactId>teavm-tests-wasi</artifactId>
 

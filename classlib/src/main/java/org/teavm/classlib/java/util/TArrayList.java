@@ -191,8 +191,24 @@ public class TArrayList<E> extends TAbstractList<E> implements TCloneable, TSeri
 
     @Override
     public void forEach(Consumer<? super E> action) {
-        for (int i = 0; i < size; i++) {
-            action.accept(array[i]);
+        // JDK-compliant ArrayList.forEach: snapshot the backing array and size
+        // into locals, iterate es[i], and fail-fast on structural modification
+        // via modCount (throwing ConcurrentModificationException) instead of
+        // reading the live size/array fields each iteration. The prior
+        // non-compliant version (for (i = 0; i < size; i++) action.accept(array[i]))
+        // both violated the fail-fast contract and — because it re-read the
+        // size/array fields inside a loop whose body is an indirect
+        // (non-devirtualized) call — miscompiled the loop exit under large
+        // reachable-class sets, looping unboundedly on a fresh 1-element list.
+        TObjects.requireNonNull(action);
+        int expectedModCount = modCount;
+        E[] es = array;
+        int sz = size;
+        for (int i = 0; modCount == expectedModCount && i < sz; i++) {
+            action.accept(es[i]);
+        }
+        if (modCount != expectedModCount) {
+            throw new TConcurrentModificationException();
         }
     }
 

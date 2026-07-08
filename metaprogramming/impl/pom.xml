@@ -21,7 +21,7 @@
   <parent>
     <artifactId>teavm</artifactId>
     <groupId>com.fermyon</groupId>
-    <version>0.2.7</version>
+    <version>0.2.7-spooler1</version>
     <relativePath>../../pom.xml</relativePath>
   </parent>
   <modelVersion>4.0.0</modelVersion>
