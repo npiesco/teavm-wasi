@@ -348,7 +348,7 @@ public class WasmClassGenerator {
             header.setInt(CLASS_INIT, functionTable.size());
             functionTable.add(names.forClassInitializer(name));
         } else {
-            header.setInt(CLASS_INIT, -1);
+            header.setInt(CLASS_INIT, 0);
         }
 
         header.setInt(CLASS_FLAGS, flags);

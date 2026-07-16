@@ -30,11 +30,19 @@ import org.teavm.backend.wasm.model.expression.WasmIntBinary;
 import org.teavm.backend.wasm.model.expression.WasmIntBinaryOperation;
 import org.teavm.backend.wasm.model.expression.WasmIntType;
 import org.teavm.backend.wasm.model.expression.WasmSetLocal;
+import org.teavm.model.MethodDescriptor;
 import org.teavm.model.MethodReference;
 
 public class FloatIntrinsic implements WasmIntrinsic {
     private static final int EXPONENT_BITS = 0x7F800000;
     private static final int FRACTION_BITS = 0x007FFFFF;
+    private static final MethodDescriptor GET_NAN = new MethodDescriptor("getNaN", float.class);
+    private static final MethodDescriptor IS_NAN = new MethodDescriptor("isNaN", float.class, boolean.class);
+    private static final MethodDescriptor IS_INFINITE = new MethodDescriptor("isInfinite", float.class, boolean.class);
+    private static final MethodDescriptor FLOAT_TO_INT_BITS = new MethodDescriptor("floatToIntBits",
+            float.class, int.class);
+    private static final MethodDescriptor INT_BITS_TO_FLOAT = new MethodDescriptor("intBitsToFloat",
+            int.class, float.class);
 
     @Override
     public boolean isApplicable(MethodReference methodReference) {
@@ -42,16 +50,12 @@ public class FloatIntrinsic implements WasmIntrinsic {
             return false;
         }
 
-        switch (methodReference.getName()) {
-            case "getNaN":
-            case "isNaN":
-            case "isInfinite":
-            case "floatToIntBits":
-            case "intBitsToFloat":
-                return true;
-            default:
-                return false;
-        }
+        MethodDescriptor descriptor = methodReference.getDescriptor();
+        return descriptor.equals(GET_NAN)
+                || descriptor.equals(IS_NAN)
+                || descriptor.equals(IS_INFINITE)
+                || descriptor.equals(FLOAT_TO_INT_BITS)
+                || descriptor.equals(INT_BITS_TO_FLOAT);
     }
 
     @Override

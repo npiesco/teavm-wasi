@@ -76,6 +76,7 @@ import org.teavm.backend.wasm.intrinsics.WasmIntrinsicFactory;
 import org.teavm.backend.wasm.intrinsics.WasmIntrinsicFactoryContext;
 import org.teavm.backend.wasm.intrinsics.WasmIntrinsicManager;
 import org.teavm.backend.wasm.intrinsics.WasmRuntimeIntrinsic;
+import org.teavm.backend.wasm.intrinsics.WasiEventQueueIntrinsic;
 import org.teavm.backend.wasm.model.WasmFunction;
 import org.teavm.backend.wasm.model.WasmLocal;
 import org.teavm.backend.wasm.model.WasmMemorySegment;
@@ -455,6 +456,7 @@ public class WasmTarget implements TeaVMTarget, TeaVMWasmHost {
         context.addIntrinsic(new IntegerIntrinsic());
         context.addIntrinsic(new ObjectIntrinsic());
         context.addIntrinsic(new ConsoleIntrinsic());
+        context.addIntrinsic(new WasiEventQueueIntrinsic());
         context.addGenerator(new ArrayGenerator());
         if (!Boolean.parseBoolean(System.getProperty("teavm.wasm.vmAssertions", "false"))) {
             context.addIntrinsic(new MemoryTraceIntrinsic());

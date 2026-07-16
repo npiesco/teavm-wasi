@@ -31,11 +31,20 @@ import org.teavm.backend.wasm.model.expression.WasmIntBinary;
 import org.teavm.backend.wasm.model.expression.WasmIntBinaryOperation;
 import org.teavm.backend.wasm.model.expression.WasmIntType;
 import org.teavm.backend.wasm.model.expression.WasmSetLocal;
+import org.teavm.model.MethodDescriptor;
 import org.teavm.model.MethodReference;
 
 public class DoubleIntrinsic implements WasmIntrinsic {
     private static final long EXPONENT_BITS = 0x7FF0000000000000L;
     private static final long FRACTION_BITS = 0x000FFFFFFFFFFFFFL;
+    private static final MethodDescriptor GET_NAN = new MethodDescriptor("getNaN", double.class);
+    private static final MethodDescriptor IS_NAN = new MethodDescriptor("isNaN", double.class, boolean.class);
+    private static final MethodDescriptor IS_INFINITE = new MethodDescriptor("isInfinite",
+            double.class, boolean.class);
+    private static final MethodDescriptor DOUBLE_TO_LONG_BITS = new MethodDescriptor("doubleToLongBits",
+            double.class, long.class);
+    private static final MethodDescriptor LONG_BITS_TO_DOUBLE = new MethodDescriptor("longBitsToDouble",
+            long.class, double.class);
 
     @Override
     public boolean isApplicable(MethodReference methodReference) {
@@ -43,16 +52,12 @@ public class DoubleIntrinsic implements WasmIntrinsic {
             return false;
         }
 
-        switch (methodReference.getName()) {
-            case "getNaN":
-            case "isNaN":
-            case "isInfinite":
-            case "doubleToLongBits":
-            case "longBitsToDouble":
-                return true;
-            default:
-                return false;
-        }
+        MethodDescriptor descriptor = methodReference.getDescriptor();
+        return descriptor.equals(GET_NAN)
+                || descriptor.equals(IS_NAN)
+                || descriptor.equals(IS_INFINITE)
+                || descriptor.equals(DOUBLE_TO_LONG_BITS)
+                || descriptor.equals(LONG_BITS_TO_DOUBLE);
     }
 
     @Override

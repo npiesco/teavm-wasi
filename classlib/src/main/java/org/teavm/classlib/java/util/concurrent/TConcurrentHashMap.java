@@ -37,6 +37,13 @@ public class TConcurrentHashMap<K, V> extends THashMap<K, V> implements TConcurr
         super(initialCapacity, loadFactor);
     }
 
+    public TConcurrentHashMap(int initialCapacity, float loadFactor, int concurrencyLevel) {
+        super(initialCapacity, loadFactor);
+        if (concurrencyLevel <= 0) {
+            throw new IllegalArgumentException("concurrencyLevel must be positive");
+        }
+    }
+
     public TConcurrentHashMap(TMap<? extends K, ? extends V> m) {
         super(m);
     }

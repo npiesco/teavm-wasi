@@ -17,7 +17,6 @@ package org.teavm.classlib.java.lang;
 
 import java.util.Iterator;
 import java.util.Locale;
-import org.teavm.backend.javascript.spi.GeneratedBy;
 import org.teavm.classlib.java.io.TSerializable;
 import org.teavm.classlib.java.io.TUnsupportedEncodingException;
 import org.teavm.classlib.java.nio.TByteBuffer;
@@ -27,15 +26,15 @@ import org.teavm.classlib.java.nio.charset.impl.TUTF8Charset;
 import org.teavm.classlib.java.util.TArrays;
 import org.teavm.classlib.java.util.TComparator;
 import org.teavm.classlib.java.util.TFormatter;
+import org.teavm.classlib.java.util.THashMap;
 import org.teavm.classlib.java.util.TLocale;
 import org.teavm.classlib.java.util.regex.TPattern;
-import org.teavm.dependency.PluggableDependency;
-import org.teavm.interop.NoSideEffects;
 
 public class TString extends TObject implements TSerializable, TComparable<TString>, TCharSequence {
     public static final TComparator<TString> CASE_INSENSITIVE_ORDER = (o1, o2) -> o1.compareToIgnoreCase(o2);
     private char[] characters;
     private transient int hashCode;
+    private static THashMap<TString, TString> internPool;
 
     public TString() {
         this.characters = new char[0];
@@ -644,10 +643,17 @@ public class TString extends TObject implements TSerializable, TComparable<TStri
         return toUpperCase();
     }
 
-    @GeneratedBy(StringNativeGenerator.class)
-    @PluggableDependency(StringNativeGenerator.class)
-    @NoSideEffects
-    public native TString intern();
+    public TString intern() {
+        if (internPool == null) {
+            internPool = new THashMap<>();
+        }
+        TString interned = internPool.get(this);
+        if (interned == null) {
+            internPool.put(this, this);
+            interned = this;
+        }
+        return interned;
+    }
 
     public boolean matches(String regex) {
         return TPattern.matches(regex, this.toString());
