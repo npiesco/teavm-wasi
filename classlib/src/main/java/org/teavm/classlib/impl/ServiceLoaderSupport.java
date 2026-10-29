@@ -16,6 +16,7 @@
 package org.teavm.classlib.impl;
 
 import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -27,6 +28,8 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -47,6 +50,8 @@ public class ServiceLoaderSupport extends AbstractDependencyListener implements 
     private static final MethodDescriptor INIT_METHOD = new MethodDescriptor("<init>", void.class);
     private Map<String, Set<String>> serviceMap = new HashMap<>();
     private ClassLoader classLoader;
+    private static final String SERVICES_PREFIX = "META-INF/services/";
+    private Map<String, Set<String>> classpathProviders;
 
     public ServiceLoaderSupport(ClassLoader classLoader) {
         this.classLoader = classLoader;
@@ -69,6 +74,10 @@ public class ServiceLoaderSupport extends AbstractDependencyListener implements 
     @Override
     public void methodReached(DependencyAgent agent, MethodDependency method) {
         MethodReference ref = method.getReference();
+        if (ref.getClassName().equals("java.lang.Class") && ref.getName().equals("forName")) {
+            linkServiceProviders(agent);
+            return;
+        }
         if (!ref.getClassName().equals("java.util.ServiceLoader")) {
             return;
         }
@@ -107,6 +116,53 @@ public class ServiceLoaderSupport extends AbstractDependencyListener implements 
         });
     }
 
+    // Provider classes named in META-INF/services files are the classpath's standard declaration of classes to be
+    // loaded by name. Once Class.forName is reachable, the providers of every reachable service type are part of
+    // the closed world (a service nobody reaches cannot be looked up, so its providers stay out).
+    private void linkServiceProviders(DependencyAgent agent) {
+        if (classpathProviders != null) {
+            return;
+        }
+        classpathProviders = new LinkedHashMap<>();
+        try {
+            for (Map.Entry<String, List<byte[]>> entry : ClasspathScanner.resources(classLoader,
+                    name -> name.startsWith(SERVICES_PREFIX) && name.length() > SERVICES_PREFIX.length())
+                    .entrySet()) {
+                Set<String> providers = classpathProviders.computeIfAbsent(
+                        entry.getKey().substring(SERVICES_PREFIX.length()), k -> new LinkedHashSet<>());
+                for (byte[] file : entry.getValue()) {
+                    parseServiceFile(new ByteArrayInputStream(file), providers);
+                }
+            }
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+        Set<String> reached = new HashSet<>(agent.getReachableClasses());
+        for (String service : classpathProviders.keySet()) {
+            if (reached.contains(service)) {
+                linkProvidersOf(agent, service);
+            }
+        }
+    }
+
+    @Override
+    public void classReached(DependencyAgent agent, String className) {
+        if (classpathProviders != null && classpathProviders.containsKey(className)) {
+            linkProvidersOf(agent, className);
+        }
+    }
+
+    private void linkProvidersOf(DependencyAgent agent, String service) {
+        Set<String> providers = classpathProviders.remove(service);
+        if (providers == null) {
+            return;
+        }
+        for (String provider : providers) {
+            if (agent.getClassSource().get(provider) != null) {
+                agent.linkClass(provider);
+            }
+        }
+    }
     private Set<String> getImplementations(String type) {
         Set<String> result = new LinkedHashSet<>();
         try {

@@ -753,7 +753,12 @@ public class TeaVM implements TeaVMHost, ServiceRepository {
                 }
             } while (changed);
 
-            target.afterOptimizations(optimizedProgram, method);
+            try {
+                target.afterOptimizations(optimizedProgram, method);
+            } catch (RuntimeException | AssertionError e) {
+                throw new IllegalStateException("Error in target post-processing of method " + method.getReference()
+                        + ":\n" + new ListingBuilder().buildListing(optimizedProgram, "    "), e);
+            }
             if (target.requiresRegisterAllocation()) {
                 RegisterAllocator allocator = new RegisterAllocator();
                 allocator.allocateRegisters(method.getReference(), optimizedProgram,

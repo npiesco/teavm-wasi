@@ -20,7 +20,7 @@
   <parent>
     <groupId>com.fermyon</groupId>
     <artifactId>teavm</artifactId>
-    <version>0.2.7-spooler38</version>
+    <version>0.2.7-spooler41</version>
   </parent>
   <artifactId>teavm-classlib</artifactId>
 
@@ -96,6 +96,18 @@
     <dependency>
       <groupId>joda-time</groupId>
       <artifactId>joda-time</artifactId>
+    </dependency>
+    <!-- java.xml: the JDK module is a fork of Apache Xerces-J and Xalan-J; the originals provide JAXP here
+         (xercesImpl brings xml-apis 1.4.01 with javax.xml, org.w3c.dom and org.xml.sax). -->
+    <dependency>
+      <groupId>xerces</groupId>
+      <artifactId>xercesImpl</artifactId>
+      <version>2.12.2</version>
+    </dependency>
+    <dependency>
+      <groupId>xalan</groupId>
+      <artifactId>xalan</artifactId>
+      <version>2.7.3</version>
     </dependency>
   </dependencies>
 

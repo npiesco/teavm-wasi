@@ -272,7 +272,7 @@ public class InProcessBuildStrategy implements BuildStrategy {
         }
 
         try {
-            tool.generate();
+            generateOnCompilerThread(tool);
         } catch (TeaVMToolException | RuntimeException | Error e) {
             throw new BuildException(e);
         }
@@ -283,6 +283,41 @@ public class InProcessBuildStrategy implements BuildStrategy {
 
         return new InProcessBuildResult(tool.getDependencyInfo().getCallGraph(),
                 tool.getProblemProvider(), tool.getClasses(), tool.getUsedResources(), generatedFiles);
+    }
+
+    // The AST and IR passes recurse once per nesting level of the compiled method, so the depth they need follows
+    // the program being compiled (large generated or hand-written state machines nest deeply), not the build
+    // tool. Compilation runs on its own thread whose stack is sized for that rather than the host's default.
+    private static final long COMPILER_THREAD_STACK_SIZE = 1L << 30;
+
+    private static void generateOnCompilerThread(TeaVMTool tool) throws TeaVMToolException {
+        Throwable[] failure = new Throwable[1];
+        Thread compiler = new Thread(null, () -> {
+            try {
+                tool.generate();
+            } catch (Throwable e) {
+                failure[0] = e;
+            }
+        }, "teavm-compiler", COMPILER_THREAD_STACK_SIZE);
+        compiler.setContextClassLoader(Thread.currentThread().getContextClassLoader());
+        compiler.start();
+        try {
+            compiler.join();
+        } catch (InterruptedException e) {
+            compiler.interrupt();
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while compiling", e);
+        }
+        Throwable error = failure[0];
+        if (error instanceof TeaVMToolException) {
+            throw (TeaVMToolException) error;
+        } else if (error instanceof RuntimeException) {
+            throw (RuntimeException) error;
+        } else if (error instanceof Error) {
+            throw (Error) error;
+        } else if (error != null) {
+            throw new IllegalStateException(error);
+        }
     }
 
     private ClassLoader buildClassLoader() {

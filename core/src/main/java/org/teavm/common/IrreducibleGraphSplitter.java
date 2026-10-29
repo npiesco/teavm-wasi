@@ -29,14 +29,14 @@ import java.util.Arrays;
  */
 class IrreducibleGraphSplitter {
     private GraphSplittingBackend backend;
-    private int[] idom;
+    private DominatorTree dom;
     private int[][] domNodes;
     private MutableDirectedGraph cfg;
     private int[] weights;
     private IntArrayList[] realNodes;
     private int[][] spBackEdges;
-    private int[] levels;
     private int[] tmpArray;
+    private int[] tmpArray2;
     private IntArrayList copiedRealNodes = new IntArrayList();
     private int additionalWeight;
     private int[] collapseMap;
@@ -61,18 +61,14 @@ class IrreducibleGraphSplitter {
         }
         this.backend = backend;
         tmpArray = new int[src.size()];
+        tmpArray2 = new int[src.size()];
         cfg = new MutableDirectedGraph(src);
-        DominatorTree domTree = GraphUtils.buildDominatorTree(src);
-        idom = new int[size];
-        for (int i = 0; i < size; ++i) {
-            idom[i] = domTree.immediateDominatorOf(i);
-        }
+        dom = GraphUtils.buildDominatorTree(src);
         collapseMap = new int[size];
         for (int i = 0; i < size; ++i) {
             collapseMap[i] = i;
         }
         buildDomGraph();
-        buildLevels();
         dfs();
         this.realNodes = new IntArrayList[realNodes.length];
         for (int i = 0; i < cfg.size(); ++i) {
@@ -86,7 +82,7 @@ class IrreducibleGraphSplitter {
         int size = cfg.size();
         int[] domGraphCount = new int[size];
         for (int i = 0; i < size; ++i) {
-            int j = idom[i];
+            int j = dom.immediateDominatorOf(i);
             if (j >= 0) {
                 domGraphCount[j]++;
             }
@@ -97,40 +93,12 @@ class IrreducibleGraphSplitter {
             domGraphCount[i] = 0;
         }
         for (int i = 0; i < size; ++i) {
-            int j = idom[i];
+            int j = dom.immediateDominatorOf(i);
             if (j >= 0) {
                 domGraph[j][domGraphCount[j]++] = i;
             }
         }
         this.domNodes = domGraph;
-    }
-
-    // n-th element of output array (levels) will contain length of the path from root to node N
-    // (paper calls this 'level').
-    private void buildLevels() {
-        int size = cfg.size();
-        levels = new int[size];
-        Arrays.fill(levels, -1);
-        levels[0] = 0;
-        for (int i = 1; i < size; ++i) {
-            if (levels[i] >= 0 || idom[i] < 0) {
-                continue;
-            }
-
-            int node = i;
-            int depth = 0;
-            while (levels[node] < 0) {
-                node = idom[node];
-                depth++;
-            }
-
-            int level = depth + levels[node];
-            node = i;
-            while (levels[node] < 0) {
-                levels[node] = level--;
-                node = idom[node];
-            }
-        }
     }
 
     // Find back edges.
@@ -190,7 +158,7 @@ class IrreducibleGraphSplitter {
 
     // This is an implementation of 'split_loop' function from the paper.
     // It does not take 'top' and 'set' parameter.
-    // Instead, it always starts with 0 node as top and assumes that all of the 'set' nodes are in the graph
+    // Instead, it always starts with 0 node as top and assumes that all the 'set' nodes are in the graph
     // We rewrote this method to use stack instead of recursion. The only place where we need recursion
     // is handleScc. We build a new instance of this class with corresponding subgraph.
     void splitLoops() {
@@ -214,27 +182,27 @@ class IrreducibleGraphSplitter {
                 }
             } else {
                 if (cross[node]) {
-                    for (int successor : domNodes[node]) {
-                        collapse(successor);
-                    }
                     handleIrreducibleChildren(node);
                 }
                 int[] back = spBackEdges[node];
-                int parent = idom[node];
+                int parent = dom.immediateDominatorOf(node);
                 if (back != null && parent >= 0) {
                     for (int predecessor : back) {
-                        if (!dominates(node, predecessor)) {
+                        if (!dom.dominates(node, predecessor)) {
                             cross[parent] = true;
                             break;
                         }
                     }
+                }
+                if (domNodes[node].length > 1) {
+                    collapse(node);
                 }
             }
         }
     }
 
     private void handleIrreducibleChildren(int top) {
-        Graph levelSubgraph = GraphUtils.subgraph(cfg, node -> node == top || idom[node] == top);
+        Graph levelSubgraph = GraphUtils.subgraph(cfg, node -> node != top && dom.dominates(top, node));
         int[][] sccs = GraphUtils.findStronglyConnectedComponents(levelSubgraph);
         for (int[] scc : sccs) {
             if (scc.length > 1) {
@@ -244,47 +212,64 @@ class IrreducibleGraphSplitter {
     }
 
     private void handleStronglyConnectedComponent(int top, int[] scc) {
+        int domainCount = 0;
+        for (int node : scc) {
+            if (dom.immediateDominatorOf(node) == top) {
+                ++domainCount;
+            }
+        }
+        if (domainCount < 2) {
+            return;
+        }
+
         // Find header node
-        int domain = scc[0];
-        int maxWeight = weights[domain];
-        for (int i = 1; i < scc.length; ++i) {
-            int node = scc[i];
-            if (weights[node] > maxWeight) {
-                maxWeight = weights[node];
-                domain = node;
+        int[] domains = fillDomains(top, scc);
+        int[] localWeights = fillWeights(domains, scc);
+
+        int remaining = -1;
+        int maxWeight = 0;
+        for (int node : scc) {
+            if (domains[node] != node) {
+                continue;
+            }
+            if (remaining < 0 || localWeights[node] > maxWeight) {
+                maxWeight = localWeights[node];
+                remaining = node;
             }
         }
 
-        int[] realDomainNodes = realNodes[domain].toArray();
+        int realRemainingNodesCount = 0;
         int realNodesToCopyCount = 0;
+        int copyWeight = 0;
+        int remainingNodeCount = 0;
         for (int node : scc) {
-            if (node != domain) {
+            if (domains[node] != remaining) {
                 realNodesToCopyCount += realNodes[node].size();
+                copyWeight += weights[node];
+            } else {
+                remainingNodeCount++;
+                realRemainingNodesCount += realNodes[node].size();
             }
         }
         int[] realNodesToCopy = new int[realNodesToCopyCount];
+        int[] realRemainingNodes = new int[realRemainingNodesCount];
         realNodesToCopyCount = 0;
+        realRemainingNodesCount = 0;
         for (int node : scc) {
-            if (node != domain) {
-                int[] nodes = realNodes[node].toArray();
+            int[] nodes = realNodes[node].toArray();
+            if (domains[node] != remaining) {
                 System.arraycopy(nodes, 0, realNodesToCopy, realNodesToCopyCount, nodes.length);
                 realNodesToCopyCount += nodes.length;
+            } else {
+                System.arraycopy(nodes, 0, realRemainingNodes, realRemainingNodesCount, nodes.length);
+                realRemainingNodesCount += nodes.length;
             }
         }
 
-        int[] realNodesCopies = backend.split(realDomainNodes, realNodesToCopy);
+        int[] realNodesCopies = backend.split(realRemainingNodes, realNodesToCopy);
         copiedRealNodes.add(realNodesCopies);
-        realNodes[top].add(realNodesCopies);
-        int copyWeight = 0;
-        for (int node : scc) {
-            if (node != domain) {
-                copyWeight += weights[node];
-            }
-        }
-        this.additionalWeight += copyWeight;
-        weights[top] += copyWeight;
 
-        int subgraphSize = scc.length * 2;
+        int subgraphSize = scc.length * 2 + 1 - remainingNodeCount;
         GraphBuilder subgraph = new GraphBuilder(subgraphSize);
         int[][] subgraphRealNodes = new int[subgraphSize][];
         int[] subgraphWeights = new int[subgraphSize];
@@ -293,19 +278,30 @@ class IrreducibleGraphSplitter {
         Arrays.fill(map, -1);
         Arrays.fill(copyMap, -1);
 
-        map[top] = 0;
-        subgraphRealNodes[0] = realNodes[top].toArray();
-        subgraphWeights[0] = weights[top];
+        subgraphRealNodes[0] = new int[0];
+        subgraphWeights[0] = 0;
         for (int i = 0; i < scc.length; ++i) {
             int node = scc[i];
             map[node] = i + 1;
             subgraphRealNodes[i + 1] = realNodes[node].toArray();
             subgraphWeights[i + 1] = weights[node];
+            if (domains[node] == node) {
+                boolean hasPredecessorsOutsideLoop = false;
+                for (int pred : cfg.incomingEdges(node)) {
+                    if (domains[pred] < 0) {
+                        hasPredecessorsOutsideLoop = true;
+                        break;
+                    }
+                }
+                if (hasPredecessorsOutsideLoop) {
+                    subgraph.addEdge(0, i + 1);
+                }
+            }
         }
         int copyIndex = scc.length + 1;
         int realNodeCopiesIndex = 0;
         for (int node : scc) {
-            if (node == domain) {
+            if (domains[node] == remaining) {
                 continue;
             }
             copyMap[node] = copyIndex;
@@ -317,9 +313,6 @@ class IrreducibleGraphSplitter {
             copyIndex++;
         }
 
-        for (int i = 0; i < scc.length; ++i) {
-            subgraph.addEdge(0, i + 1);
-        }
         for (int node : scc) {
             int subgraphNode = map[node];
             int subgraphNodeCopy = copyMap[node];
@@ -354,19 +347,57 @@ class IrreducibleGraphSplitter {
         IrreducibleGraphSplitter subgraphSplitter = new IrreducibleGraphSplitter(backend, subgraph.build(),
                 subgraphWeights, subgraphRealNodes);
         subgraphSplitter.splitLoops();
-        copiedRealNodes.addAll(subgraphSplitter.copiedRealNodes);
         realNodes[top].addAll(subgraphSplitter.copiedRealNodes);
-        additionalWeight += subgraphSplitter.additionalWeight;
-        weights[top] += subgraphSplitter.additionalWeight;
+        realNodes[top].add(realNodesCopies);
+        weights[top] += subgraphSplitter.additionalWeight + copyWeight;
+        copiedRealNodes.addAll(subgraphSplitter.copiedRealNodes);
+        additionalWeight += subgraphSplitter.additionalWeight + copyWeight;
     }
 
-    private boolean dominates(int dominator, int node) {
-        int targetLevel = levels[dominator];
-        int level = levels[node];
-        while (level-- > targetLevel) {
-            node = idom[node];
+    private int[] fillDomains(int top, int[] nodes) {
+        int[] domains = tmpArray;
+        Arrays.fill(domains, -1);
+        for (int node : nodes) {
+            int domain = domains[node];
+            if (domain < 0) {
+                while (true) {
+                    int parent = dom.immediateDominatorOf(node);
+                    if (parent == top) {
+                        domain = node;
+                        break;
+                    }
+                    domain = domains[parent];
+                    if (domain >= 0) {
+                        break;
+                    }
+                    domains[parent] = node;
+                    node = parent;
+                }
+                while (true) {
+                    int next = domains[node];
+                    domains[node] = domain;
+                    if (next == -1) {
+                        break;
+                    }
+                    node = next;
+                }
+            }
         }
-        return node == dominator;
+
+        return domains;
+    }
+
+    private int[] fillWeights(int[] domains, int[] nodes) {
+        int[] localWeights = tmpArray2;
+        for (int node : nodes) {
+            if (domains[node] == node) {
+                localWeights[node] = 0;
+            }
+        }
+        for (int node : nodes) {
+            localWeights[domains[node]] += weights[node];
+        }
+        return localWeights;
     }
 
     private void collapse(int top) {

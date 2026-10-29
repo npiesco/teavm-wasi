@@ -38,6 +38,7 @@ import org.teavm.model.Instruction;
 import org.teavm.model.MethodDescriptor;
 import org.teavm.model.MethodReader;
 import org.teavm.model.MethodReference;
+import org.teavm.model.Phi;
 import org.teavm.model.Program;
 import org.teavm.model.TextLocation;
 import org.teavm.model.ValueType;
@@ -57,6 +58,7 @@ import org.teavm.model.instructions.MonitorEnterInstruction;
 import org.teavm.model.instructions.NullConstantInstruction;
 import org.teavm.model.instructions.SwitchInstruction;
 import org.teavm.model.instructions.SwitchTableEntry;
+import org.teavm.model.optimization.UnreachableBasicBlockEliminator;
 import org.teavm.model.util.BasicBlockMapper;
 import org.teavm.model.util.BasicBlockSplitter;
 import org.teavm.model.util.DefinitionExtractor;
@@ -478,7 +480,9 @@ public class CoroutineTransformation {
             weights[i] = program.basicBlockAt(i).instructionCount();
         }
         GraphUtils.splitIrreducibleGraph(graph, weights, splittingBackend);
-        new PhiUpdater().updatePhis(program, parameterCount + 1);
+        // Splitting can leave copies that nothing enters; their phis have no incomings, so SSA can't be rebuilt
+        // over them.
+        new UnreachableBasicBlockEliminator().optimize(program);
     }
 
     class SplittingBackend implements GraphSplittingBackend {
@@ -518,6 +522,23 @@ public class CoroutineTransformation {
                         outputCopy.setValue(output.getValue());
                         output.getPhi().getIncomings().add(outputCopy);
                     }
+                }
+            }
+
+            // Ported from upstream TeaVM (konsoletyper/teavm, CoroutineTransformation.SplittingBackend): the
+            // domain now enters the copies, so the originals lose their incomings from it, and a copy keeps only
+            // incomings from the domain and from other copies.
+            IntSet domainSet = IntHashSet.from(domain);
+            IntSet copiedSet = IntHashSet.from(copies);
+            for (int i = 0; i < nodes.length; ++i) {
+                BasicBlock block = program.basicBlockAt(nodes[i]);
+                for (Phi phi : block.getPhis()) {
+                    phi.getIncomings().removeIf(incoming -> domainSet.contains(incoming.getSource().getIndex()));
+                }
+                BasicBlock blockCopy = program.basicBlockAt(copies[i]);
+                for (Phi phi : blockCopy.getPhis()) {
+                    phi.getIncomings().removeIf(incoming -> !domainSet.contains(incoming.getSource().getIndex())
+                            && !copiedSet.contains(incoming.getSource().getIndex()));
                 }
             }
 

@@ -15,6 +15,8 @@
  */
 package org.teavm.classlib.java.lang;
 
+import org.teavm.classlib.java.util.stream.TIntStream;
+
 public interface TCharSequence {
     int length();
 
@@ -24,4 +26,27 @@ public interface TCharSequence {
 
     @Override
     String toString();
+
+    default TIntStream chars() {
+        TIntStream.Builder builder = TIntStream.builder();
+        for (int i = 0; i < length(); ++i) {
+            builder.add(charAt(i));
+        }
+        return builder.build();
+    }
+
+    // Supplementary characters become one code point; an unpaired surrogate is passed through as is.
+    default TIntStream codePoints() {
+        TIntStream.Builder builder = TIntStream.builder();
+        int i = 0;
+        while (i < length()) {
+            char c = charAt(i++);
+            if (Character.isHighSurrogate(c) && i < length() && Character.isLowSurrogate(charAt(i))) {
+                builder.add(Character.toCodePoint(c, charAt(i++)));
+            } else {
+                builder.add(c);
+            }
+        }
+        return builder.build();
+    }
 }
