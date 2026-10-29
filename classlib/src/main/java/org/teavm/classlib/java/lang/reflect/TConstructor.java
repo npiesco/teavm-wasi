@@ -113,6 +113,21 @@ public class TConstructor<T> extends TAccessibleObject implements TMember {
         return parameterTypes.clone();
     }
 
+    // JDK Constructor: equal when declared by the same class with the same parameter types.
+    @Override
+    public boolean equals(Object obj) {
+        if (!(obj instanceof TConstructor)) {
+            return false;
+        }
+        TConstructor<?> other = (TConstructor<?>) obj;
+        return declaringClass == other.declaringClass
+                && java.util.Arrays.equals(parameterTypes, other.parameterTypes);
+    }
+
+    @Override
+    public int hashCode() {
+        return declaringClass.getName().hashCode();
+    }
     public int getParameterCount() {
         return parameterTypes.length;
     }
@@ -209,7 +224,7 @@ public class TConstructor<T> extends TAccessibleObject implements TMember {
         return converted;
     }
 
-    private static Object widen(String target, Object arg) {
+    static Object widen(String target, Object arg) {
         if (arg instanceof Boolean) {
             return target.equals("boolean") ? arg : null;
         }

@@ -115,6 +115,7 @@ public class ClassGenerator implements Generator, Injector, DependencyPlugin {
             if (cls != null) {
                 for (String iface : cls.getInterfaces()) {
                     method.getResult().getClassValueNode().propagate(agent.getType(iface));
+                    method.getResult().getArrayItem().getClassValueNode().propagate(agent.getType(iface));
                 }
             }
         });

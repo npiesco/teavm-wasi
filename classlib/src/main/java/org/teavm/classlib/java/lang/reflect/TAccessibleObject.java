@@ -20,19 +20,28 @@ import org.teavm.classlib.java.lang.TSecurityException;
 import org.teavm.classlib.java.lang.annotation.TAnnotation;
 
 public class TAccessibleObject implements TAnnotatedElement {
+    private boolean accessible;
+
     protected TAccessibleObject() {
     }
 
     public static void setAccessible(TAccessibleObject[] array, boolean flag) throws TSecurityException {
-        // Do nothing
+        for (TAccessibleObject object : array) {
+            object.setAccessible(flag);
+        }
     }
 
     public void setAccessible(boolean flag) throws TSecurityException {
-        // Do nothing
+        accessible = flag;
+    }
+
+    public final boolean trySetAccessible() {
+        accessible = true;
+        return true;
     }
 
     public boolean isAccessible() {
-        return true;
+        return accessible;
     }
 
     @Override

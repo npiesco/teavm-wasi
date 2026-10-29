@@ -108,6 +108,8 @@ public class WasmClassGenerator {
     private static final int CLASS_IS_INSTANCE = 11;
     private static final int CLASS_INIT = 12;
     private static final int CLASS_PARENT = 13;
+    private static final int CLASS_INTERFACE_COUNT = 14;
+    private static final int CLASS_INTERFACES = 15;
     private static final int CLASS_ENUM_VALUES = 16;
     private static final int CLASS_LAYOUT = 17;
     private static final int CLASS_SIMPLE_NAME = 18;
@@ -261,6 +263,31 @@ public class WasmClassGenerator {
         return value;
     }
 
+    // Direct superinterfaces, for Class.getInterfaces. Pointers are resolved before the table is appended because
+    // resolving one may emit that interface's own record.
+    private void writeInterfaces(ClassReader cls, DataValue header) {
+        List<Integer> pointers = new ArrayList<>();
+        for (String iface : cls.getInterfaces()) {
+            if (processedClassSource.get(iface) != null) {
+                pointers.add(getClassPointer(ValueType.object(iface)));
+            }
+        }
+        if (pointers.isEmpty()) {
+            return;
+        }
+        int table = 0;
+        for (int i = 0; i < pointers.size(); ++i) {
+            DataValue entry = DataPrimitives.ADDRESS.createValue();
+            entry.setAddress(0, pointers.get(i));
+            int address = binaryWriter.append(entry);
+            if (i == 0) {
+                table = address;
+            }
+        }
+        header.setInt(CLASS_INTERFACE_COUNT, pointers.size());
+        header.setAddress(CLASS_INTERFACES, table);
+    }
+
     public List<String> getFunctionTable() {
         return functionTable;
     }
@@ -312,6 +339,9 @@ public class WasmClassGenerator {
                     && requirements.declaringClass()) {
                 header.setAddress(CLASS_DECLARING_CLASS,
                         getClassPointer(ValueType.object(cls.getDeclaringClassName())));
+            }
+            if (requirements.interfaces()) {
+                writeInterfaces(cls, header);
             }
         }
 

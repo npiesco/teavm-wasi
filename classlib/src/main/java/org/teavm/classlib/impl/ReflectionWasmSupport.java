@@ -19,13 +19,16 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Predicate;
 import org.teavm.dependency.AbstractDependencyListener;
 import org.teavm.dependency.DependencyAgent;
+import org.teavm.dependency.FieldDependency;
 import org.teavm.dependency.MethodDependency;
 import org.teavm.model.AccessLevel;
 import org.teavm.model.CallLocation;
 import org.teavm.model.ClassReader;
 import org.teavm.model.ElementModifier;
+import org.teavm.model.FieldReader;
 import org.teavm.model.MethodReader;
 import org.teavm.model.MethodReference;
 import org.teavm.model.ValueType;
@@ -53,6 +56,21 @@ public class ReflectionWasmSupport extends AbstractDependencyListener {
             "wasmConstructorParameterTypes", CLASS, ValueType.INTEGER, ValueType.arrayOf(CLASS));
     private static final MethodReference NEW_INSTANCE = new MethodReference(CONSTRUCTOR, "wasmNewInstance",
             CLASS, ValueType.INTEGER, ValueType.arrayOf(OBJECT), OBJECT);
+    private static final String FIELD = "java.lang.reflect.Field";
+    private static final MethodReference FIELDS_DECLARED = new MethodReference(FIELD, "wasmDeclaredFields",
+            CLASS, ValueType.arrayOf(ValueType.object(FIELD)));
+    private static final MethodReference FIELD_COUNT = new MethodReference(FIELD, "wasmFieldCount",
+            CLASS, ValueType.INTEGER);
+    private static final MethodReference FIELD_MODIFIERS = new MethodReference(FIELD, "wasmFieldModifiers",
+            CLASS, ValueType.INTEGER, ValueType.INTEGER);
+    private static final MethodReference FIELD_NAME = new MethodReference(FIELD, "wasmFieldName",
+            CLASS, ValueType.INTEGER, ValueType.object("java.lang.String"));
+    private static final MethodReference FIELD_TYPE = new MethodReference(FIELD, "wasmFieldType",
+            CLASS, ValueType.INTEGER, CLASS);
+    private static final MethodReference FIELD_GET = new MethodReference(FIELD, "wasmFieldGet",
+            CLASS, ValueType.INTEGER, OBJECT, OBJECT);
+    private static final MethodReference FIELD_SET = new MethodReference(FIELD, "wasmFieldSet",
+            CLASS, ValueType.INTEGER, OBJECT, OBJECT, ValueType.VOID);
     // Mirrors TConstructor.WASM_CLASS_ABSTRACT / WASM_CLASS_ENUM.
     private static final int CLASS_ABSTRACT = 1 << 20;
     private static final int CLASS_ENUM = 1 << 21;
@@ -61,6 +79,10 @@ public class ReflectionWasmSupport extends AbstractDependencyListener {
     private Characteristics characteristics;
     private MethodDependency newInstanceDep;
     private MethodDependency parameterTypesDep;
+    private final Map<String, List<FieldReader>> fields = new LinkedHashMap<>();
+    private MethodDependency fieldTypeDep;
+    private MethodDependency fieldGetDep;
+    private MethodDependency fieldSetDep;
 
     @Override
     public void started(DependencyAgent agent) {
@@ -84,6 +106,9 @@ public class ReflectionWasmSupport extends AbstractDependencyListener {
             for (List<MethodReader> declared : constructors.values()) {
                 propagateParameterTypes(agent, declared);
             }
+            return;
+        }
+        if (reachedFieldAccess(agent, method)) {
             return;
         }
         if (!method.getReference().equals(DECLARED)) {
@@ -209,20 +234,10 @@ public class ReflectionWasmSupport extends AbstractDependencyListener {
     @Override
     public void completing(DependencyAgent agent) {
         Map<String, List<MethodReader>> snapshot = new LinkedHashMap<>(constructors);
-        if (agent.getMethod(COUNT) != null) {
-            ProgramEmitter pe = ProgramEmitter.create(COUNT.getDescriptor(), agent.getClassHierarchy());
-            ValueEmitter cls = pe.var(1, CLASS);
-            for (Map.Entry<String, List<MethodReader>> entry : snapshot.entrySet()) {
-                int count = entry.getValue().size();
-                pe.when(cls.isSame(pe.constant(ValueType.object(entry.getKey()))))
-                        .thenDo(() -> pe.constant(count).returnValue());
-            }
-            pe.constant(0).returnValue();
-            agent.submitMethod(COUNT, pe.getProgram());
-        }
-        submit(agent, MODIFIERS, ValueType.INTEGER, snapshot, true, (pe, owner, ctor, args) ->
+        submitCount(agent, COUNT, snapshot);
+        submit(agent, MODIFIERS, ValueType.INTEGER, snapshot, cls -> true, (pe, owner, ctor, args) ->
                 pe.constant(modifiers(owner, ctor)).returnValue());
-        submit(agent, PARAMETER_TYPES, ValueType.arrayOf(CLASS), snapshot, true, (pe, owner, ctor, args) -> {
+        submit(agent, PARAMETER_TYPES, ValueType.arrayOf(CLASS), snapshot, cls -> true, (pe, owner, ctor, args) -> {
             ValueType[] parameters = ctor.getParameterTypes();
             ValueEmitter array = pe.constructArray(CLASS, parameters.length);
             for (int i = 0; i < parameters.length; ++i) {
@@ -230,48 +245,275 @@ public class ReflectionWasmSupport extends AbstractDependencyListener {
             }
             array.returnValue();
         });
-        submit(agent, NEW_INSTANCE, OBJECT, snapshot, false, (pe, owner, ctor, args) -> {
-            ValueType[] parameters = ctor.getParameterTypes();
-            ValueEmitter[] values = new ValueEmitter[parameters.length];
-            for (int i = 0; i < parameters.length; ++i) {
-                values[i] = unbox(args.getElement(i), parameters[i]);
-            }
-            pe.construct(owner.getName(), values).returnValue();
-        });
+        submit(agent, NEW_INSTANCE, OBJECT, snapshot, ReflectionWasmSupport::isInstantiable,
+                (pe, owner, ctor, args) -> {
+                    ValueType[] parameters = ctor.getParameterTypes();
+                    ValueEmitter[] values = new ValueEmitter[parameters.length];
+                    for (int i = 0; i < parameters.length; ++i) {
+                        values[i] = unbox(args[0].getElement(i), parameters[i]);
+                    }
+                    pe.construct(owner.getName(), values).returnValue();
+                });
+        completingFields(agent);
     }
 
-    private interface ConstructorEmitter {
-        void emit(ProgramEmitter pe, ClassReader owner, MethodReader constructor, ValueEmitter arguments);
+    private interface MemberEmitter<T> {
+        void emit(ProgramEmitter pe, ClassReader owner, T member, ValueEmitter[] arguments);
     }
 
-    private void submit(DependencyAgent agent, MethodReference method, ValueType resultType,
-            Map<String, List<MethodReader>> snapshot, boolean metadata, ConstructorEmitter emitter) {
+    private static void submitCount(DependencyAgent agent, MethodReference method,
+            Map<String, ? extends List<?>> snapshot) {
+        if (agent.getMethod(method) == null) {
+            return;
+        }
+        ProgramEmitter pe = ProgramEmitter.create(method.getDescriptor(), agent.getClassHierarchy());
+        ValueEmitter cls = pe.var(1, CLASS);
+        for (Map.Entry<String, ? extends List<?>> entry : snapshot.entrySet()) {
+            int count = entry.getValue().size();
+            pe.when(cls.isSame(pe.constant(ValueType.object(entry.getKey()))))
+                    .thenDo(() -> pe.constant(count).returnValue());
+        }
+        pe.constant(0).returnValue();
+        agent.submitMethod(method, pe.getProgram());
+    }
+
+    // Dispatches on (class, member index); the remaining parameters of the native are passed to the emitter.
+    private static <T> void submit(DependencyAgent agent, MethodReference method, ValueType resultType,
+            Map<String, List<T>> snapshot, Predicate<ClassReader> include, MemberEmitter<T> emitter) {
         if (agent.getMethod(method) == null) {
             return;
         }
         ProgramEmitter pe = ProgramEmitter.create(method.getDescriptor(), agent.getClassHierarchy());
         ValueEmitter cls = pe.var(1, CLASS);
         ValueEmitter index = pe.var(2, ValueType.INTEGER);
-        ValueEmitter arguments = method.parameterCount() > 2 ? pe.var(3, ValueType.arrayOf(OBJECT)) : null;
-        for (Map.Entry<String, List<MethodReader>> entry : snapshot.entrySet()) {
+        ValueEmitter[] arguments = new ValueEmitter[method.parameterCount() - 2];
+        for (int i = 0; i < arguments.length; ++i) {
+            arguments[i] = pe.var(3 + i, method.parameterType(2 + i));
+        }
+        for (Map.Entry<String, List<T>> entry : snapshot.entrySet()) {
             ClassReader owner = agent.getClassSource().get(entry.getKey());
-            if (!metadata && !isInstantiable(owner)) {
+            if (!include.test(owner)) {
                 continue;
             }
-            List<MethodReader> declared = entry.getValue();
+            List<T> declared = entry.getValue();
             pe.when(cls.isSame(pe.constant(ValueType.object(entry.getKey())))).thenDo(() -> {
                 for (int i = 0; i < declared.size(); ++i) {
-                    MethodReader ctor = declared.get(i);
-                    pe.when(index.isEqualTo(pe.constant(i))).thenDo(() -> emitter.emit(pe, owner, ctor, arguments));
+                    T member = declared.get(i);
+                    pe.when(index.isEqualTo(pe.constant(i))).thenDo(() -> emitter.emit(pe, owner, member, arguments));
                 }
             });
         }
-        if (resultType instanceof ValueType.Primitive) {
+        if (resultType == ValueType.VOID) {
+            pe.exit();
+        } else if (resultType instanceof ValueType.Primitive) {
             pe.constant(0).returnValue();
         } else {
             pe.constantNull(resultType).returnValue();
         }
         agent.submitMethod(method, pe.getProgram());
+    }
+
+    // --- java.lang.reflect.Field -------------------------------------------------------------------------
+
+    private boolean reachedFieldAccess(DependencyAgent agent, MethodDependency method) {
+        MethodReference ref = method.getReference();
+        if (ref.equals(FIELD_TYPE)) {
+            fieldTypeDep = method;
+            method.getResult().propagate(agent.getType("java.lang.Class"));
+            for (List<FieldReader> declared : fields.values()) {
+                propagateFieldTypes(agent, declared);
+            }
+        } else if (ref.equals(FIELD_NAME)) {
+            method.getResult().propagate(agent.getType("java.lang.String"));
+        } else if (ref.equals(FIELD_GET)) {
+            fieldGetDep = method;
+            for (Map.Entry<String, List<FieldReader>> entry : fields.entrySet()) {
+                linkFieldGet(agent, entry.getKey(), entry.getValue());
+            }
+        } else if (ref.equals(FIELD_SET)) {
+            fieldSetDep = method;
+            for (Map.Entry<String, List<FieldReader>> entry : fields.entrySet()) {
+                linkFieldSet(agent, entry.getKey(), entry.getValue());
+            }
+        } else if (ref.equals(FIELDS_DECLARED)) {
+            method.getVariable(1).getClassValueNode().addConsumer(type -> recordFields(agent, type.getName()));
+        } else {
+            return false;
+        }
+        return true;
+    }
+
+    private void recordFields(DependencyAgent agent, String name) {
+        if (name.startsWith("[") || name.startsWith("~") || fields.containsKey(name)
+                || !characteristics.isManaged(name)) {
+            return;
+        }
+        ClassReader cls = agent.getClassSource().get(name);
+        if (cls == null) {
+            return;
+        }
+        List<FieldReader> declared = new ArrayList<>();
+        for (FieldReader field : cls.getFields()) {
+            if (typeResolves(agent, field.getType())) {
+                declared.add(field);
+            }
+        }
+        fields.put(name, declared);
+        agent.linkClass(name);
+        for (FieldReader field : declared) {
+            linkType(agent, field.getType());
+        }
+        if (fieldTypeDep != null) {
+            propagateFieldTypes(agent, declared);
+        }
+        if (fieldGetDep != null) {
+            linkFieldGet(agent, name, declared);
+        }
+        if (fieldSetDep != null) {
+            linkFieldSet(agent, name, declared);
+        }
+    }
+
+    private static boolean typeResolves(DependencyAgent agent, ValueType type) {
+        while (type instanceof ValueType.Array) {
+            type = ((ValueType.Array) type).getItemType();
+        }
+        return !(type instanceof ValueType.Object)
+                || agent.getClassSource().get(((ValueType.Object) type).getClassName()) != null;
+    }
+
+    private void propagateFieldTypes(DependencyAgent agent, List<FieldReader> declared) {
+        for (FieldReader field : declared) {
+            ValueType type = field.getType();
+            if (type instanceof ValueType.Object) {
+                fieldTypeDep.getResult().getClassValueNode()
+                        .propagate(agent.getType(((ValueType.Object) type).getClassName()));
+            } else if (type instanceof ValueType.Array) {
+                fieldTypeDep.getResult().getClassValueNode().propagate(agent.getType(type.toString()));
+            }
+        }
+    }
+
+    private void linkFieldGet(DependencyAgent agent, String owner, List<FieldReader> declared) {
+        CallLocation location = new CallLocation(FIELD_GET);
+        for (FieldReader field : declared) {
+            FieldDependency dep = agent.linkField(field.getReference());
+            if (field.hasModifier(ElementModifier.STATIC)) {
+                agent.linkClass(owner).initClass(location);
+            }
+            if (field.getType() instanceof ValueType.Primitive) {
+                MethodReference boxing = boxing((ValueType.Primitive) field.getType());
+                agent.linkClass(boxing.getClassName());
+                MethodDependency box = agent.linkMethod(boxing);
+                box.use();
+                box.getResult().connect(fieldGetDep.getResult());
+            } else {
+                dep.getValue().connect(fieldGetDep.getResult());
+            }
+        }
+    }
+
+    private void linkFieldSet(DependencyAgent agent, String owner, List<FieldReader> declared) {
+        CallLocation location = new CallLocation(FIELD_SET);
+        for (FieldReader field : declared) {
+            FieldDependency dep = agent.linkField(field.getReference());
+            if (field.hasModifier(ElementModifier.STATIC)) {
+                agent.linkClass(owner).initClass(location);
+            }
+            if (field.getType() instanceof ValueType.Primitive) {
+                MethodReference unboxing = unboxing((ValueType.Primitive) field.getType());
+                agent.linkClass(unboxing.getClassName());
+                MethodDependency unbox = agent.linkMethod(unboxing);
+                unbox.getVariable(0).propagate(agent.getType(unboxing.getClassName()));
+                unbox.use();
+            } else {
+                fieldSetDep.getVariable(4).connect(dep.getValue());
+            }
+        }
+    }
+
+    private void completingFields(DependencyAgent agent) {
+        Map<String, List<FieldReader>> snapshot = new LinkedHashMap<>(fields);
+        submitCount(agent, FIELD_COUNT, snapshot);
+        submit(agent, FIELD_MODIFIERS, ValueType.INTEGER, snapshot, cls -> true, (pe, owner, field, args) ->
+                pe.constant(fieldModifiers(field)).returnValue());
+        submit(agent, FIELD_NAME, ValueType.object("java.lang.String"), snapshot, cls -> true,
+                (pe, owner, field, args) -> pe.constant(field.getName()).returnValue());
+        submit(agent, FIELD_TYPE, CLASS, snapshot, cls -> true, (pe, owner, field, args) ->
+                pe.constant(field.getType()).returnValue());
+        submit(agent, FIELD_GET, OBJECT, snapshot, cls -> true, (pe, owner, field, args) -> {
+            ValueEmitter value = field.hasModifier(ElementModifier.STATIC)
+                    ? pe.getField(owner.getName(), field.getName(), field.getType())
+                    : args[0].cast(ValueType.object(owner.getName())).getField(field.getName(), field.getType());
+            if (field.getType() instanceof ValueType.Primitive) {
+                value = pe.invoke(boxing((ValueType.Primitive) field.getType()), value);
+            }
+            value.returnValue();
+        });
+        submit(agent, FIELD_SET, ValueType.VOID, snapshot, cls -> true, (pe, owner, field, args) -> {
+            ValueEmitter value = unbox(args[1], field.getType());
+            if (field.hasModifier(ElementModifier.STATIC)) {
+                pe.setField(owner.getName(), field.getName(), value);
+            } else {
+                args[0].cast(ValueType.object(owner.getName())).setField(field.getName(), value);
+            }
+            pe.exit();
+        });
+    }
+
+    private static int fieldModifiers(FieldReader field) {
+        int result = access(field.getLevel());
+        if (field.hasModifier(ElementModifier.STATIC)) {
+            result |= 0x8;
+        }
+        if (field.hasModifier(ElementModifier.FINAL)) {
+            result |= 0x10;
+        }
+        if (field.hasModifier(ElementModifier.VOLATILE)) {
+            result |= 0x40;
+        }
+        if (field.hasModifier(ElementModifier.TRANSIENT)) {
+            result |= 0x80;
+        }
+        if (field.hasModifier(ElementModifier.SYNTHETIC)) {
+            result |= 0x1000;
+        }
+        if (field.hasModifier(ElementModifier.ENUM)) {
+            result |= 0x4000;
+        }
+        return result;
+    }
+
+    private static int access(AccessLevel level) {
+        if (level == AccessLevel.PUBLIC) {
+            return 0x1;
+        } else if (level == AccessLevel.PRIVATE) {
+            return 0x2;
+        } else if (level == AccessLevel.PROTECTED) {
+            return 0x4;
+        }
+        return 0;
+    }
+
+    private static MethodReference boxing(ValueType.Primitive type) {
+        switch (type.getKind()) {
+            case BOOLEAN:
+                return new MethodReference(Boolean.class, "valueOf", boolean.class, Boolean.class);
+            case BYTE:
+                return new MethodReference(Byte.class, "valueOf", byte.class, Byte.class);
+            case SHORT:
+                return new MethodReference(Short.class, "valueOf", short.class, Short.class);
+            case CHARACTER:
+                return new MethodReference(Character.class, "valueOf", char.class, Character.class);
+            case INTEGER:
+                return new MethodReference(Integer.class, "valueOf", int.class, Integer.class);
+            case LONG:
+                return new MethodReference(Long.class, "valueOf", long.class, Long.class);
+            case FLOAT:
+                return new MethodReference(Float.class, "valueOf", float.class, Float.class);
+            default:
+                return new MethodReference(Double.class, "valueOf", double.class, Double.class);
+        }
     }
 
     private static boolean isInstantiable(ClassReader cls) {

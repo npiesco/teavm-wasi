@@ -29,6 +29,8 @@ public class ClassMetadataRequirements {
             "getDeclaringClass", Class.class);
     private static final MethodReference GET_ENCLOSING_CLASS_METHOD = new MethodReference(Class.class,
             "getEnclosingClass", Class.class);
+    private static final MethodReference GET_INTERFACES_METHOD = new MethodReference(Class.class,
+            "getInterfaces", Class[].class);
     private static final ClassInfo EMPTY_INFO = new ClassInfo();
     private Map<String, ClassInfo> requirements = new HashMap<>();
 
@@ -64,6 +66,14 @@ public class ClassMetadataRequirements {
                 requirements.computeIfAbsent(className, k -> new ClassInfo()).enclosingClass = true;
             }
         }
+
+        MethodDependencyInfo getInterfacesMethod = dependencyInfo.getMethod(GET_INTERFACES_METHOD);
+        if (getInterfacesMethod != null) {
+            String[] classNames = getInterfacesMethod.getVariable(0).getClassValueNode().getTypes();
+            for (String className : classNames) {
+                requirements.computeIfAbsent(className, k -> new ClassInfo()).interfaces = true;
+            }
+        }
     }
 
     public Info getInfo(String className) {
@@ -95,6 +105,7 @@ public class ClassMetadataRequirements {
         boolean simpleName;
         boolean declaringClass;
         boolean enclosingClass;
+        boolean interfaces;
 
         @Override
         public boolean name() {
@@ -115,6 +126,11 @@ public class ClassMetadataRequirements {
         public boolean enclosingClass() {
             return enclosingClass;
         }
+
+        @Override
+        public boolean interfaces() {
+            return interfaces;
+        }
     }
 
     public interface Info {
@@ -125,5 +141,7 @@ public class ClassMetadataRequirements {
         boolean declaringClass();
 
         boolean enclosingClass();
+
+        boolean interfaces();
     }
 }

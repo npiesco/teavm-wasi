@@ -110,6 +110,9 @@ public class TDate implements TComparable<TDate> {
 
     @Deprecated
     public static long parse(String s) {
+        if (PlatformDetector.isWebAssembly()) {
+            return parseUtc(s);
+        }
         if (PlatformDetector.isLowLevel()) {
             return parseLowLevel(s);
         }
@@ -485,6 +488,161 @@ public class TDate implements TComparable<TDate> {
         return era * 146097 + doe - 719468;
     }
 
+    // The vocabulary Date.parse recognizes (java.util.Date#parse): AM/PM, weekdays, months, then zones.
+    private static final String[] PARSE_WORDS = { "am", "pm", "monday", "tuesday", "wednesday", "thursday",
+            "friday", "saturday", "sunday", "january", "february", "march", "april", "may", "june", "july",
+            "august", "september", "october", "november", "december", "gmt", "ut", "utc", "est", "edt", "cst",
+            "cdt", "mst", "mdt", "pst", "pdt" };
+    private static final int PARSE_FIRST_MONTH = 9;
+    private static final int PARSE_FIRST_UTC = 21;
+    private static final int PARSE_FIRST_ZONE = 24;
+    private static int parseCenturyStart;
+
+    // Date.parse with the JDK's observable behaviour; on WASI the local zone is UTC. Words resolve against
+    // the vocabulary from its end (so "Ma" is May and "Ju" is July, as on the JDK), need at least two letters,
+    // and 12 AM is midnight while 12 PM stays noon.
+    private static long parseUtc(String s) {
+        int year = Integer.MIN_VALUE;
+        int mon = -1;
+        int mday = -1;
+        int hour = -1;
+        int min = -1;
+        int sec = -1;
+        int tzoffset = -1;
+        char prevc = 0;
+        int i = 0;
+        int limit = s == null ? 0 : s.length();
+        while (i < limit) {
+            char c = s.charAt(i++);
+            if (c <= ' ' || c == ',') {
+                continue;
+            }
+            if (c == '(') {
+                int depth = 1;
+                while (i < limit) {
+                    c = s.charAt(i++);
+                    if (c == '(') {
+                        depth++;
+                    } else if (c == ')' && --depth <= 0) {
+                        break;
+                    }
+                }
+                continue;
+            }
+            if (c >= '0' && c <= '9') {
+                int n = c - '0';
+                while (i < limit && (c = s.charAt(i)) >= '0' && c <= '9') {
+                    n = n * 10 + c - '0';
+                    i++;
+                }
+                if ((prevc == '+' || prevc == '-') && year != Integer.MIN_VALUE) {
+                    n = n < 24 ? n * 60 : n % 100 + n / 100 * 60;
+                    if (prevc == '+') {
+                        n = -n;
+                    }
+                    if (tzoffset != 0 && tzoffset != -1) {
+                        throw parseFailure(s);
+                    }
+                    tzoffset = n;
+                } else if (n >= 70) {
+                    if (year != Integer.MIN_VALUE || !(c <= ' ' || c == ',' || c == '/' || i >= limit)) {
+                        throw parseFailure(s);
+                    }
+                    year = n;
+                } else if (c == ':') {
+                    if (hour < 0) {
+                        hour = n;
+                    } else if (min < 0) {
+                        min = n;
+                    } else {
+                        throw parseFailure(s);
+                    }
+                } else if (c == '/') {
+                    if (mon < 0) {
+                        mon = n - 1;
+                    } else if (mday < 0) {
+                        mday = n;
+                    } else {
+                        throw parseFailure(s);
+                    }
+                } else if (i < limit && c != ',' && c > ' ' && c != '-') {
+                    throw parseFailure(s);
+                } else if (hour >= 0 && min < 0) {
+                    min = n;
+                } else if (min >= 0 && sec < 0) {
+                    sec = n;
+                } else if (mday < 0) {
+                    mday = n;
+                } else if (year == Integer.MIN_VALUE && mon >= 0) {
+                    year = n;
+                } else {
+                    throw parseFailure(s);
+                }
+                prevc = 0;
+            } else if (c == '/' || c == ':' || c == '+' || c == '-') {
+                prevc = c;
+            } else {
+                int start = i - 1;
+                while (i < limit) {
+                    c = s.charAt(i);
+                    if (!(c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z')) {
+                        break;
+                    }
+                    i++;
+                }
+                if (i <= start + 1) {
+                    throw parseFailure(s);
+                }
+                int word = PARSE_WORDS.length;
+                while (--word >= 0) {
+                    if (PARSE_WORDS[word].regionMatches(true, 0, s, start, i - start)) {
+                        break;
+                    }
+                }
+                if (word < 0) {
+                    throw parseFailure(s);
+                }
+                if (word <= 1) {
+                    if (hour > 12 || hour < 1) {
+                        throw parseFailure(s);
+                    }
+                    if (word == 0 && hour == 12) {
+                        hour = 0;
+                    } else if (word == 1 && hour < 12) {
+                        hour += 12;
+                    }
+                } else if (word >= PARSE_FIRST_ZONE) {
+                    int zone = word - PARSE_FIRST_ZONE;
+                    tzoffset = 300 + zone / 2 * 60 - (zone % 2 == 1 ? 60 : 0);
+                } else if (word >= PARSE_FIRST_UTC) {
+                    tzoffset = 0;
+                } else if (word >= PARSE_FIRST_MONTH) {
+                    if (mon >= 0) {
+                        throw parseFailure(s);
+                    }
+                    mon = word - PARSE_FIRST_MONTH;
+                }
+            }
+        }
+        if (year == Integer.MIN_VALUE || mon < 0 || mday < 0) {
+            throw parseFailure(s);
+        }
+        if (year < 100) {
+            if (parseCenturyStart == 0) {
+                parseCenturyStart = 1900 + fieldsUtc(System.currentTimeMillis())[0] - 80;
+            }
+            year += parseCenturyStart / 100 * 100;
+            if (year < parseCenturyStart) {
+                year += 100;
+            }
+        }
+        long time = composeUtc(year - 1900, mon, mday, Math.max(hour, 0), Math.max(min, 0), Math.max(sec, 0));
+        return tzoffset != -1 ? time + tzoffset * 60000L : time;
+    }
+
+    private static IllegalArgumentException parseFailure(String s) {
+        return new IllegalArgumentException("Can't parse date: " + s);
+    }
     private static long composeUtc(int year, int month, int date, int hrs, int min, int sec) {
         long y = 1900L + year + Math.floorDiv(month, 12);
         int m = Math.floorMod(month, 12) + 1;
