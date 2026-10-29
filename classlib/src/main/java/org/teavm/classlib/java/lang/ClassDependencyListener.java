@@ -38,6 +38,12 @@ public class ClassDependencyListener implements DependencyPlugin {
             case "getNameCacheLowLevel":
                 method.getResult().propagate(agent.getType("java.lang.String"));
                 break;
+            case "classAt":
+            case "classAtLowLevel":
+                // A runtime class-table entry is a java.lang.Class; the low-level body returns a
+                // RuntimeClass structure, which carries no Java type for the analyzer.
+                method.getResult().propagate(agent.getType("java.lang.Class"));
+                break;
         }
     }
 }

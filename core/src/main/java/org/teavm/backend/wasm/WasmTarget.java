@@ -110,6 +110,7 @@ import org.teavm.common.ServiceRepository;
 import org.teavm.dependency.ClassDependency;
 import org.teavm.dependency.DependencyAnalyzer;
 import org.teavm.dependency.DependencyListener;
+import org.teavm.dependency.MethodDependencyInfo;
 import org.teavm.diagnostics.Diagnostics;
 import org.teavm.interop.Address;
 import org.teavm.interop.DelegateTo;
@@ -482,6 +483,15 @@ public class WasmTarget implements TeaVMTarget, TeaVMWasmHost {
                 asyncMethods::contains);
 
         generateMethods(classes, context, generator, classGenerator, binaryWriter, module);
+        if (isRuntimeClassLookupReached()) {
+            // Class.forName searches the runtime class table, so every class compiled into the
+            // module needs a class record there, not only those the generated code references.
+            for (String className : classes.getClassNames()) {
+                if (!classGenerator.isStructure(className) && !classGenerator.isFunctionClass(className)) {
+                    classGenerator.getClassPointer(ValueType.object(className));
+                }
+            }
+        }
         new WasmInteropFunctionGenerator(classGenerator).generateFunctions(module);
         exceptionHandlingIntrinsic.postProcess(CallSiteDescriptor.extract(classes, classes.getClassNames()));
         generateIsSupertypeFunctions(tagRegistry, module, classGenerator);
@@ -761,6 +771,13 @@ public class WasmTarget implements TeaVMTarget, TeaVMWasmHost {
             default:
                 return false;
         }
+    }
+
+    private boolean isRuntimeClassLookupReached() {
+        MethodReference lookup = new MethodReference("java.lang.Class", "lookupLowLevel",
+                ValueType.object("java.lang.String"), ValueType.object("java.lang.Class"));
+        MethodDependencyInfo dependency = controller.getDependencyInfo().getMethod(lookup);
+        return dependency != null && dependency.isUsed();
     }
 
     private void generateIsSupertypeFunctions(TagRegistry tagRegistry, WasmModule module,

@@ -19,7 +19,7 @@
 
   <groupId>com.fermyon</groupId>
   <artifactId>teavm</artifactId>
-  <version>0.2.7-spooler16</version>
+  <version>0.2.7-spooler21</version>
   <packaging>pom</packaging>
 
   <name>TeaVM</name>

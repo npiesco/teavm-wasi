@@ -203,7 +203,9 @@ public class WasmClassGenerator {
             functionTable.add(names.forSupertypeFunction(type));
             binaryData.data.setAddress(CLASS_NAME, stringPool.getStringPointer(type.toString().replace('/', '.')));
             binaryData.data.setAddress(CLASS_SIMPLE_NAME, 0);
-            binaryData.data.setInt(CLASS_INIT, -1);
+            // Arrays have no static initializer: 0, the null function reference, as for classes
+            // without one (Platform.initClass skips null; -1 is an out-of-bounds table index).
+            binaryData.data.setInt(CLASS_INIT, 0);
             binaryData.data.setAddress(CLASS_PARENT, getClassPointer(ValueType.object("java.lang.Object")));
             binaryData.start = binaryWriter.append(vtableSize > 0 ? wrapper : binaryData.data);
 
@@ -217,7 +219,7 @@ public class WasmClassGenerator {
         value.setInt(CLASS_FLAGS, RuntimeClass.PRIMITIVE);
         value.setInt(CLASS_IS_INSTANCE, functionTable.size());
         value.setAddress(CLASS_SIMPLE_NAME, 0);
-        value.setInt(CLASS_INIT, -1);
+        value.setInt(CLASS_INIT, 0);
         functionTable.add(names.forSupertypeFunction(type));
 
         String name;

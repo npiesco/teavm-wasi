@@ -35,11 +35,27 @@ public class ClassLookupDependencySupport extends AbstractDependencyListener {
     @Override
     public void methodReached(DependencyAgent agent, MethodDependency method) {
         MethodReference ref = method.getReference();
-        if (ref.getClassName().equals(Platform.class.getName()) && ref.getName().equals("lookupClass")) {
+        boolean platformLookup = ref.getClassName().equals(Platform.class.getName())
+                && ref.getName().equals("lookupClass");
+        // Class.forName on WebAssembly searches the runtime class table instead of calling
+        // Platform.lookupClass; a class found that way must have its initializer linked too.
+        boolean tableLookup = ref.getClassName().equals("java.lang.Class") && ref.getName().equals("lookupLowLevel");
+        if (platformLookup || tableLookup) {
             allClasses.addConsumer(type -> {
                 ClassReader cls = agent.getClassSource().get(type.getName());
                 if (cls == null) {
                     return;
+                }
+
+                // Loading a class loads its superclass and interfaces (JVMS 5.3.5), so a class
+                // found by runtime lookup must be able to find its supertypes too.
+                if (cls.getParent() != null) {
+                    agent.linkClass(cls.getParent());
+                    allClasses.propagate(agent.getType(cls.getParent()));
+                }
+                for (String iface : cls.getInterfaces()) {
+                    agent.linkClass(iface);
+                    allClasses.propagate(agent.getType(iface));
                 }
 
                 MethodReader initMethod = cls.getMethod(new MethodDescriptor("<clinit>", void.class));

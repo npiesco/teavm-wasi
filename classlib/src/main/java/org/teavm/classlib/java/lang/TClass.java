@@ -48,6 +48,7 @@ import org.teavm.jso.core.JSArray;
 import org.teavm.platform.Platform;
 import org.teavm.platform.PlatformClass;
 import org.teavm.platform.PlatformSequence;
+import org.teavm.runtime.Mutator;
 import org.teavm.runtime.RuntimeClass;
 import org.teavm.runtime.RuntimeObject;
 
@@ -691,11 +692,47 @@ public class TClass<T> extends TObject implements TAnnotatedElement, TType {
     }
 
     public static TClass<?> forName(TString name) throws TClassNotFoundException {
+        if (PlatformDetector.isWebAssembly()) {
+            TClass<?> found = lookupLowLevel(name.toString());
+            if (found == null) {
+                throw new TClassNotFoundException(name.toString());
+            }
+            found.initialize();
+            return found;
+        }
         PlatformClass cls = Platform.lookupClass(name.toString());
         if (cls == null) {
             throw new TClassNotFoundException();
         }
         return getClass(cls);
+    }
+
+    // WebAssembly: search the module's runtime class table, which holds a record for every
+    // class compiled into the module (TeaVM is closed-world, so a class that was never compiled
+    // in cannot be found, as with any AOT compiler). Primitive types have no binary name and are
+    // never returned by Class.forName.
+    private static TClass<?> lookupLowLevel(String name) {
+        int count = Mutator.getClassCount();
+        for (int i = 0; i < count; ++i) {
+            TClass<?> cls = classAt(i);
+            if (!cls.isPrimitive() && name.equals(cls.getName())) {
+                return cls;
+            }
+        }
+        return null;
+    }
+
+    @DelegateTo("classAtLowLevel")
+    @PluggableDependency(ClassDependencyListener.class)
+    private static TClass<?> classAt(int index) {
+        return null;
+    }
+
+    @Unmanaged
+    @SuppressWarnings("unused")
+    @PluggableDependency(ClassDependencyListener.class)
+    private static RuntimeClass classAtLowLevel(int index) {
+        return Mutator.getClasses().add(Address.sizeOf() * index).getAddress().toStructure();
     }
 
     @SuppressWarnings("unused")
