@@ -15,10 +15,16 @@
  */
 package org.teavm.classlib.java.lang;
 
-// Note: this class is left empty on purpose -
-//  functionality is intended to be added as need arises
 public class TSecurityManager {
-
     public TSecurityManager() {
+    }
+
+    // JDK algorithm: a package needs RuntimePermission("accessClassInPackage.<name>") only if it falls under one of
+    // the restricted prefixes of the "package.access" security property. WASI has no java.security configuration,
+    // so no package is restricted.
+    public void checkPackageAccess(String pkg) {
+        if (pkg == null) {
+            throw new NullPointerException("package name can't be null");
+        }
     }
 }

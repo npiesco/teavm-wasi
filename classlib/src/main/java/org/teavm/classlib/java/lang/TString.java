@@ -113,6 +113,10 @@ public class TString extends TObject implements TSerializable, TComparable<TStri
         this(sb.buffer, 0, sb.length());
     }
 
+    public TString(TStringBuffer sb) {
+        this(sb.buffer, 0, sb.length());
+    }
+
     private TString(int length) {
         this.characters = new char[length];
     }

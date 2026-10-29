@@ -49,6 +49,7 @@ class TDecimalFormatParser {
             throw new IllegalArgumentException("Positive number pattern not found in " + string);
         }
         parseNumber(true);
+        positiveSuffix = new FormatField[0];
         negativePrefix = null;
         negativeSuffix = null;
         if (index < string.length() && string.charAt(index) != ';') {

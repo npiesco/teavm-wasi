@@ -46,6 +46,7 @@ public class CLDRReader {
     private Set<String> availableCountries = new LinkedHashSet<>();
     private boolean initialized;
     private ClassLoader classLoader;
+    private static final String ALL_LOCALES = "*";
     private String availableLocalesString;
 
     private CLDRReader(ClassLoader classLoader, String availableLocalesString) {
@@ -54,7 +55,8 @@ public class CLDRReader {
     }
 
     public static CLDRReader getInstance(Properties properties, ClassLoader classLoader) {
-        String availableLocalesString = properties.getProperty("java.util.Locale.available", "en_EN").trim();
+        // Like the JDK, every CLDR locale is available unless the build narrows the set explicitly.
+        String availableLocalesString = properties.getProperty("java.util.Locale.available", ALL_LOCALES).trim();
         if (lastInstance == null || !lastInstance.availableLocalesString.equals(availableLocalesString)
                 || lastInstance.classLoader != classLoader) {
             lastInstance = new CLDRReader(classLoader, availableLocalesString);
@@ -71,6 +73,9 @@ public class CLDRReader {
     }
 
     private void findAvailableLocales() {
+        if (allLocales()) {
+            return;
+        }
         for (String locale : Arrays.asList(availableLocalesString.split(" *, *"))) {
             int countryIndex = locale.indexOf('_');
             if (countryIndex > 0) {
@@ -85,6 +90,25 @@ public class CLDRReader {
                 availableLanguages.add(locale);
             }
         }
+    }
+
+    // A CLDR directory name is a BCP 47 tag: language, then optional script (4 letters), region (2 letters or 3
+    // digits) and variants.
+    private void registerLocale(String localeName) {
+        availableLocales.add(localeName);
+        String[] subtags = localeName.split("-");
+        availableLanguages.add(subtags[0]);
+        for (int i = 1; i < subtags.length; ++i) {
+            String subtag = subtags[i];
+            if (subtag.length() == 2 || (subtag.length() == 3 && Character.isDigit(subtag.charAt(0)))) {
+                availableCountries.add(subtag);
+                break;
+            }
+        }
+    }
+
+    private boolean allLocales() {
+        return availableLocalesString.equals(ALL_LOCALES);
     }
 
     private void readCLDR(ClassLoader classLoader) {
@@ -113,8 +137,14 @@ public class CLDRReader {
                 if (localeName.startsWith("/")) {
                     localeName = localeName.substring(1);
                 }
-                if (!localeName.equals("root") && !availableLocales.contains(localeName)) {
+                if (localeName.equals("supplemental")) {
                     continue;
+                }
+                if (!localeName.equals("root") && !availableLocales.contains(localeName)) {
+                    if (!allLocales()) {
+                        continue;
+                    }
+                    registerLocale(localeName);
                 }
                 CLDRLocale localeInfo = knownLocales.get(localeName);
                 if (localeInfo == null) {
@@ -163,7 +193,7 @@ public class CLDRReader {
                 .get("localeDisplayNames").getAsJsonObject().get("languages").getAsJsonObject();
         for (Map.Entry<String, JsonElement> property : languagesJson.entrySet()) {
             String language = property.getKey();
-            if (availableLanguages.contains(language)) {
+            if (allLocales() || availableLanguages.contains(language)) {
                 locale.languages.put(language, property.getValue().getAsString());
             }
         }
@@ -175,7 +205,7 @@ public class CLDRReader {
                 .get("localeDisplayNames").getAsJsonObject().get("territories").getAsJsonObject();
         for (Map.Entry<String, JsonElement> property : countriesJson.entrySet()) {
             String country = property.getKey();
-            if (availableCountries.contains(country)) {
+            if (allLocales() || availableCountries.contains(country)) {
                 locale.territories.put(country, property.getValue().getAsString());
             }
         }

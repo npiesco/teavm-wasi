@@ -66,8 +66,146 @@ public class TDecimalFormat extends TNumberFormat {
         this.pattern = pattern;
     }
 
-    String toPattern() {
-        return pattern;
+    // As on the JDK, the pattern is rebuilt from the format's current settings rather than echoed back.
+    public String toPattern() {
+        return synthesizePattern(false);
+    }
+
+    public String toLocalizedPattern() {
+        return synthesizePattern(true);
+    }
+
+    public void applyLocalizedPattern(String pattern) {
+        applyPattern(delocalizePattern(pattern));
+    }
+
+    private String synthesizePattern(boolean localized) {
+        StringBuilder sb = new StringBuilder();
+        appendAffix(sb, positivePrefix, localized);
+        appendNumberPattern(sb, localized);
+        appendAffix(sb, positiveSuffix, localized);
+        if (!isImplicitNegative()) {
+            sb.append(localized ? symbols.getPatternSeparator() : ';');
+            appendAffix(sb, negativePrefix, localized);
+            appendNumberPattern(sb, localized);
+            appendAffix(sb, negativeSuffix, localized);
+        }
+        return sb.toString();
+    }
+
+    // The negative subpattern is implied when it is the positive one preceded by the minus sign.
+    private boolean isImplicitNegative() {
+        if (!Arrays.equals(negativeSuffix, positiveSuffix) || negativePrefix.length != positivePrefix.length + 1
+                || !(negativePrefix[0] instanceof MinusField)) {
+            return false;
+        }
+        for (int i = 0; i < positivePrefix.length; ++i) {
+            if (!positivePrefix[i].equals(negativePrefix[i + 1])) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private void appendNumberPattern(StringBuilder sb, boolean localized) {
+        char digit = localized ? symbols.getDigit() : '#';
+        char zero = localized ? symbols.getZeroDigit() : '0';
+        char grouping = localized ? symbols.getGroupingSeparator() : ',';
+        int minimumInt = getMinimumIntegerDigits();
+        int digitCount = exponentDigits > 0 ? getMaximumIntegerDigits() : Math.max(groupingSize, minimumInt) + 1;
+        for (int i = digitCount; i > 0; --i) {
+            if (i != digitCount && isGroupingUsed() && groupingSize != 0 && i % groupingSize == 0) {
+                sb.append(grouping);
+            }
+            sb.append(i <= minimumInt ? zero : digit);
+        }
+        if (getMaximumFractionDigits() > 0 || decimalSeparatorAlwaysShown) {
+            sb.append(localized ? symbols.getDecimalSeparator() : '.');
+        }
+        for (int i = 0; i < getMaximumFractionDigits(); ++i) {
+            sb.append(i < getMinimumFractionDigits() ? zero : digit);
+        }
+        if (exponentDigits > 0) {
+            sb.append(localized ? symbols.getExponentSeparator() : "E");
+            for (int i = 0; i < exponentDigits; ++i) {
+                sb.append(zero);
+            }
+        }
+    }
+
+    private void appendAffix(StringBuilder sb, FormatField[] fields, boolean localized) {
+        for (FormatField field : fields) {
+            if (field instanceof MinusField) {
+                sb.append(localized ? symbols.getMinusSign() : '-');
+            } else if (field instanceof PercentField) {
+                sb.append(localized ? symbols.getPercent() : '%');
+            } else if (field instanceof PerMillField) {
+                sb.append(localized ? symbols.getPerMill() : '\u2030');
+            } else if (field instanceof CurrencyField) {
+                sb.append('\u00A4');
+            } else {
+                StringBuffer text = new StringBuffer();
+                field.render(this, text);
+                appendQuotedText(sb, text.toString());
+            }
+        }
+    }
+
+    private static void appendQuotedText(StringBuilder sb, String text) {
+        boolean special = false;
+        for (int i = 0; i < text.length() && !special; ++i) {
+            special = "0123456789#,.;%\u2030\u00A4-E'".indexOf(text.charAt(i)) >= 0;
+        }
+        if (!special) {
+            sb.append(text);
+            return;
+        }
+        sb.append('\'');
+        for (int i = 0; i < text.length(); ++i) {
+            char c = text.charAt(i);
+            sb.append(c);
+            if (c == '\'') {
+                sb.append('\'');
+            }
+        }
+        sb.append('\'');
+    }
+
+    private String delocalizePattern(String pattern) {
+        StringBuilder sb = new StringBuilder(pattern.length());
+        String exponent = symbols.getExponentSeparator();
+        boolean quoted = false;
+        for (int i = 0; i < pattern.length(); ++i) {
+            char c = pattern.charAt(i);
+            if (c == '\'') {
+                quoted = !quoted;
+                sb.append(c);
+            } else if (quoted) {
+                sb.append(c);
+            } else if (c == symbols.getZeroDigit()) {
+                sb.append('0');
+            } else if (c == symbols.getDigit()) {
+                sb.append('#');
+            } else if (c == symbols.getGroupingSeparator()) {
+                sb.append(',');
+            } else if (c == symbols.getDecimalSeparator()) {
+                sb.append('.');
+            } else if (c == symbols.getPercent()) {
+                sb.append('%');
+            } else if (c == symbols.getPerMill()) {
+                sb.append('\u2030');
+            } else if (c == symbols.getPatternSeparator()) {
+                sb.append(';');
+            } else if (c == symbols.getMinusSign()) {
+                sb.append('-');
+            } else if (!exponent.isEmpty() && pattern.startsWith(exponent, i)) {
+                sb.append('E');
+                i += exponent.length() - 1;
+            } else {
+                sb.append(c);
+            }
+        }
+        return sb.toString();
     }
 
     public DecimalFormatSymbols getDecimalFormatSymbols() {
