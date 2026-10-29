@@ -154,6 +154,111 @@ public final class TMath extends TObject {
         return a - floorDiv(a, b) * b;
     }
 
+    public static int addExact(int x, int y) {
+        int r = x + y;
+        if (((x ^ r) & (y ^ r)) < 0) {
+            throw new TArithmeticException("integer overflow");
+        }
+        return r;
+    }
+
+    public static long addExact(long x, long y) {
+        long r = x + y;
+        if (((x ^ r) & (y ^ r)) < 0) {
+            throw new TArithmeticException("long overflow");
+        }
+        return r;
+    }
+
+    public static int subtractExact(int x, int y) {
+        int r = x - y;
+        if (((x ^ y) & (x ^ r)) < 0) {
+            throw new TArithmeticException("integer overflow");
+        }
+        return r;
+    }
+
+    public static long subtractExact(long x, long y) {
+        long r = x - y;
+        if (((x ^ y) & (x ^ r)) < 0) {
+            throw new TArithmeticException("long overflow");
+        }
+        return r;
+    }
+
+    public static int multiplyExact(int x, int y) {
+        long r = (long) x * (long) y;
+        if ((int) r != r) {
+            throw new TArithmeticException("integer overflow");
+        }
+        return (int) r;
+    }
+
+    public static long multiplyExact(long x, int y) {
+        return multiplyExact(x, (long) y);
+    }
+
+    public static long multiplyExact(long x, long y) {
+        long r = x * y;
+        long ax = abs(x);
+        long ay = abs(y);
+        if (((ax | ay) >>> 31) != 0) {
+            if ((y != 0 && r / y != x) || (x == Long.MIN_VALUE && y == -1)) {
+                throw new TArithmeticException("long overflow");
+            }
+        }
+        return r;
+    }
+
+    public static int incrementExact(int a) {
+        if (a == Integer.MAX_VALUE) {
+            throw new TArithmeticException("integer overflow");
+        }
+        return a + 1;
+    }
+
+    public static long incrementExact(long a) {
+        if (a == Long.MAX_VALUE) {
+            throw new TArithmeticException("long overflow");
+        }
+        return a + 1;
+    }
+
+    public static int decrementExact(int a) {
+        if (a == Integer.MIN_VALUE) {
+            throw new TArithmeticException("integer overflow");
+        }
+        return a - 1;
+    }
+
+    public static long decrementExact(long a) {
+        if (a == Long.MIN_VALUE) {
+            throw new TArithmeticException("long overflow");
+        }
+        return a - 1;
+    }
+
+    public static int negateExact(int a) {
+        if (a == Integer.MIN_VALUE) {
+            throw new TArithmeticException("integer overflow");
+        }
+        return -a;
+    }
+
+    public static long negateExact(long a) {
+        if (a == Long.MIN_VALUE) {
+            throw new TArithmeticException("long overflow");
+        }
+        return -a;
+    }
+
+    public static int toIntExact(long value) {
+        if ((int) value != value) {
+            throw new TArithmeticException("integer overflow");
+        }
+        return (int) value;
+    }
+
     @Unmanaged
     public static double random() {
         if (PlatformDetector.isC()) {

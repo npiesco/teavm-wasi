@@ -31,7 +31,7 @@ public class TDate implements TComparable<TDate> {
     private long value;
 
     static {
-        if (PlatformDetector.isLowLevel()) {
+        if (PlatformDetector.isC()) {
             initLowLevel();
         }
     }
