@@ -30,6 +30,7 @@ public final class Wasi {
     public static final byte PRESTAT_DIR = 0;
     public static final byte FILETYPE_DIRECTORY = 3;
     public static final byte FILETYPE_REGULAR_FILE = 4;
+    public static final byte FILETYPE_SYMBOLIC_LINK = 7;
     public static final int DIRFLAGS_FOLLOW_SYMLINKS = 1;
     public static final short OFLAGS_CREATE = 1 << 0;
     public static final short OFLAGS_DIRECTORY = 1 << 1;
@@ -127,6 +128,14 @@ public final class Wasi {
     @Import(name = "path_open", module = "wasi_snapshot_preview1")
     public static native short pathOpen(int dirFd, int lookupFlags, Address path, int pathLength, short oflags,
                                         long baseRights, long inheritingRights, short fdflags, Address fd);
+
+    @Import(name = "path_readlink", module = "wasi_snapshot_preview1")
+    public static native short pathReadlink(int fd, Address path, int pathLength, Address buffer, int bufferLength,
+            Address used);
+
+    @Import(name = "path_symlink", module = "wasi_snapshot_preview1")
+    public static native short pathSymlink(Address oldPath, int oldPathLength, int fd, Address newPath,
+            int newPathLength);
 
     @Import(name = "proc_exit", module = "wasi_snapshot_preview1")
     public static native void procExit(int code);

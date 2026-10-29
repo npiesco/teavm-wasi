@@ -19,6 +19,11 @@ import java.io.File;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Deque;
+import java.util.List;
+import org.teavm.classlib.PlatformDetector;
 
 /**
  * The java.nio.file.Path implementation for the WASI target (it must live in the mapped
@@ -336,13 +341,77 @@ final class TPosixPath implements TPath {
         return of(new File(path).getAbsolutePath());
     }
 
+    // Symbolic links resolved per component, as the kernel's path walk does (path_resolution(7)).
+    private static final int MAX_SYMLINKS = 40;
+
     @Override
     public TPath toRealPath(TLinkOption... options) throws IOException {
-        File file = new File(toAbsolutePath().toString());
-        if (!file.exists()) {
-            throw new TNoSuchFileException(path);
+        if (!PlatformDetector.isWebAssembly()) {
+            // The other targets' filesystems have no symbolic links.
+            File file = new File(toAbsolutePath().toString());
+            if (!file.exists()) {
+                throw new TNoSuchFileException(path);
+            }
+            return of(file.getCanonicalPath());
         }
-        return of(file.getCanonicalPath());
+        boolean follow = true;
+        for (TLinkOption option : options) {
+            if (option == TLinkOption.NOFOLLOW_LINKS) {
+                follow = false;
+            }
+        }
+        Deque<String> pending = new ArrayDeque<>();
+        TPosixPath absolute = (TPosixPath) toAbsolutePath();
+        for (int i = 0; i < absolute.getNameCount(); ++i) {
+            pending.addLast(absolute.nameAt(i));
+        }
+        List<String> resolved = new ArrayList<>();
+        int links = 0;
+        while (!pending.isEmpty()) {
+            String name = pending.removeFirst();
+            if (name.equals(".")) {
+                continue;
+            }
+            if (name.equals("..")) {
+                if (!resolved.isEmpty()) {
+                    resolved.remove(resolved.size() - 1);
+                }
+                continue;
+            }
+            resolved.add(name);
+            TPath current = join(resolved);
+            boolean last = pending.isEmpty();
+            if ((follow || !last) && TFiles.isSymbolicLink(current)) {
+                if (++links > MAX_SYMLINKS) {
+                    throw new TFileSystemException(path, null, "Too many levels of symbolic links");
+                }
+                String target = TFiles.readSymbolicLink(current).toString();
+                resolved.remove(resolved.size() - 1);
+                TPosixPath targetPath = of(target);
+                if (targetPath.isAbsolute()) {
+                    resolved.clear();
+                }
+                for (int i = targetPath.getNameCount() - 1; i >= 0; --i) {
+                    pending.addFirst(targetPath.nameAt(i));
+                }
+                continue;
+            }
+            if (!TFiles.exists(current, TLinkOption.NOFOLLOW_LINKS)) {
+                throw new TNoSuchFileException(path);
+            }
+        }
+        return join(resolved);
+    }
+
+    private static TPath join(List<String> names) {
+        StringBuilder sb = new StringBuilder("/");
+        for (int i = 0; i < names.size(); ++i) {
+            if (i > 0) {
+                sb.append('/');
+            }
+            sb.append(names.get(i));
+        }
+        return new TPosixPath(sb.toString());
     }
 
     @Override

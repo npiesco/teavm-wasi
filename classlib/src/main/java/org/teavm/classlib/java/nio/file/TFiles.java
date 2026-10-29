@@ -31,7 +31,10 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import org.teavm.classlib.PlatformDetector;
+import org.teavm.classlib.fs.wasi.WasiVirtualFile;
 import org.teavm.classlib.java.nio.file.attribute.TFileAttribute;
+import org.teavm.interop.wasi.Wasi;
 
 /**
  * java.nio.file.Files over the WASI filesystem that backs java.io.File on this target.
@@ -42,6 +45,57 @@ public final class TFiles {
 
     private static File file(TPath path) {
         return new File(path.toString());
+    }
+
+    private static boolean noFollow(TLinkOption[] options) {
+        for (TLinkOption option : options) {
+            if (option == TLinkOption.NOFOLLOW_LINKS) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Symbolic links are a WASI filesystem feature; the in-memory and C filesystems of the other
+    // TeaVM targets have none, so a request that depends on link semantics fails there explicitly.
+    static WasiVirtualFile linkAware(TPath path) {
+        if (!PlatformDetector.isWebAssembly()) {
+            throw new UnsupportedOperationException("symbolic links are supported on the WASI target only");
+        }
+        return new WasiVirtualFile(new File(path.toString()).getAbsolutePath());
+    }
+
+    public static boolean isSymbolicLink(TPath path) {
+        return PlatformDetector.isWebAssembly() && linkAware(path).isSymbolicLink();
+    }
+
+    public static TPath readSymbolicLink(TPath link) throws IOException {
+        WasiVirtualFile entry = linkAware(link);
+        if (!entry.isSymbolicLink()) {
+            if (!entry.existsNoFollow()) {
+                throw new TNoSuchFileException(link.toString());
+            }
+            throw new TNotLinkException(link.toString());
+        }
+        try {
+            return TPath.of(entry.readLink());
+        } catch (Wasi.ErrnoException e) {
+            throw new TFileSystemException(link.toString(), null, e.getMessage());
+        }
+    }
+
+    public static TPath createSymbolicLink(TPath link, TPath target, TFileAttribute<?>... attrs) throws IOException {
+        short errno = linkAware(link).createSymbolicLink(target.toString());
+        if (errno == Wasi.ERRNO_SUCCESS) {
+            return link;
+        }
+        if (errno == Wasi.ERRNO_EXIST) {
+            throw new TFileAlreadyExistsException(link.toString());
+        }
+        if (errno == Wasi.ERRNO_NOENT) {
+            throw new TNoSuchFileException(link.toString());
+        }
+        throw new TFileSystemException(link.toString(), target.toString(), "path_symlink errno " + errno);
     }
 
     public static InputStream newInputStream(TPath path, TOpenOption... options) throws IOException {
@@ -196,19 +250,19 @@ public final class TFiles {
     }
 
     public static boolean exists(TPath path, TLinkOption... options) {
-        return file(path).exists();
+        return noFollow(options) ? linkAware(path).existsNoFollow() : file(path).exists();
     }
 
     public static boolean notExists(TPath path, TLinkOption... options) {
-        return !file(path).exists();
+        return !exists(path, options);
     }
 
     public static boolean isDirectory(TPath path, TLinkOption... options) {
-        return file(path).isDirectory();
+        return noFollow(options) ? linkAware(path).isDirectoryNoFollow() : file(path).isDirectory();
     }
 
     public static boolean isRegularFile(TPath path, TLinkOption... options) {
-        return file(path).isFile();
+        return noFollow(options) ? linkAware(path).isFileNoFollow() : file(path).isFile();
     }
 
     public static boolean isReadable(TPath path) {
@@ -229,6 +283,14 @@ public final class TFiles {
 
     public static void delete(TPath path) throws IOException {
         File file = file(path);
+        // Deleting a symbolic link removes the link, never what it points to, and a dangling
+        // link exists as an entry.
+        if (isSymbolicLink(path)) {
+            if (!file.delete()) {
+                throw new TFileSystemException(path.toString(), null, "Unable to delete");
+            }
+            return;
+        }
         if (!file.exists()) {
             throw new TNoSuchFileException(path.toString());
         }
@@ -244,7 +306,7 @@ public final class TFiles {
     }
 
     public static boolean deleteIfExists(TPath path) throws IOException {
-        if (!file(path).exists()) {
+        if (!file(path).exists() && !isSymbolicLink(path)) {
             return false;
         }
         delete(path);

@@ -419,6 +419,11 @@ public class TFile implements Serializable, Comparable<TFile> {
         if (path.indexOf(separatorChar) < 0) {
             return false;
         }
+        // As in the JDK: nothing is created, so false, when the path already exists.
+        VirtualFile existing = fs().getFile(path);
+        if (existing.isDirectory() || existing.isFile()) {
+            return false;
+        }
         int i = path.length();
 
         do {
@@ -439,8 +444,10 @@ public class TFile implements Serializable, Comparable<TFile> {
             if (next < 0) {
                 next = path.length();
             }
-            if (next == i + 1) {
-                break;
+            if (next == i) {
+                // Empty segment ("//"): nothing to create.
+                i = next + 1;
+                continue;
             }
 
             VirtualFile file = fs().getFile(path.substring(0, i));

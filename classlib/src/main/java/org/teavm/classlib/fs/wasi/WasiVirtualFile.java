@@ -23,6 +23,7 @@ import static org.teavm.interop.wasi.Wasi.ERRNO_SUCCESS;
 import static org.teavm.interop.wasi.Wasi.FDFLAGS_APPEND;
 import static org.teavm.interop.wasi.Wasi.FILETYPE_DIRECTORY;
 import static org.teavm.interop.wasi.Wasi.FILETYPE_REGULAR_FILE;
+import static org.teavm.interop.wasi.Wasi.FILETYPE_SYMBOLIC_LINK;
 import static org.teavm.interop.wasi.Wasi.FSTFLAGS_MTIME;
 import static org.teavm.interop.wasi.Wasi.OFLAGS_CREATE;
 import static org.teavm.interop.wasi.Wasi.OFLAGS_DIRECTORY;
@@ -159,6 +160,15 @@ public class WasiVirtualFile implements VirtualFile {
     }
 
     Stat stat() {
+        return stat(DIRFLAGS_FOLLOW_SYMLINKS);
+    }
+
+    // The entry itself, not what a symbolic link points to (lstat).
+    Stat lstat() {
+        return stat(0);
+    }
+
+    private Stat stat(int lookupFlags) {
         if (dirFd == -1) {
             return null;
         }
@@ -174,8 +184,7 @@ public class WasiVirtualFile implements VirtualFile {
         } else {
             sysCall = "path_filestat_get";
             byte[] bytes = path.getBytes(StandardCharsets.UTF_8);
-            errno = Wasi.pathFilestatGet(dirFd, DIRFLAGS_FOLLOW_SYMLINKS, Address.ofData(bytes), bytes.length,
-                                         filestat);
+            errno = Wasi.pathFilestatGet(dirFd, lookupFlags, Address.ofData(bytes), bytes.length, filestat);
         }
 
         if (errno == ERRNO_SUCCESS) {
@@ -191,8 +200,63 @@ public class WasiVirtualFile implements VirtualFile {
         }
     }
 
+    public boolean existsNoFollow() {
+        return lstat() != null;
+    }
+
+    public boolean isSymbolicLink() {
+        Stat stat = lstat();
+        return stat != null && stat.filetype == FILETYPE_SYMBOLIC_LINK;
+    }
+
+    public boolean isDirectoryNoFollow() {
+        Stat stat = lstat();
+        return stat != null && stat.filetype == FILETYPE_DIRECTORY;
+    }
+
+    public boolean isFileNoFollow() {
+        Stat stat = lstat();
+        return stat != null && stat.filetype == FILETYPE_REGULAR_FILE;
+    }
+
+    /** The contents of this symbolic link; throws {@link ErrnoException} with the WASI errno. */
+    public String readLink() {
+        if (path == null || dirFd == -1) {
+            throw new ErrnoException("path_readlink", ERRNO_BADF);
+        }
+        byte[] pathBytes = path.getBytes(StandardCharsets.UTF_8);
+        Address used = Address.align(Address.ofData(SEVENTY_TWO_BYTE_BUFFER), 4);
+        int capacity = 256;
+        while (true) {
+            byte[] buffer = new byte[capacity];
+            short errno = Wasi.pathReadlink(dirFd, Address.ofData(pathBytes), pathBytes.length,
+                    Address.ofData(buffer), capacity, used);
+            if (errno != ERRNO_SUCCESS) {
+                throw new ErrnoException("path_readlink", errno);
+            }
+            int length = used.getInt();
+            // A full buffer may hold a truncated target: retry with more room.
+            if (length < capacity) {
+                return new String(buffer, 0, length, StandardCharsets.UTF_8);
+            }
+            capacity *= 2;
+        }
+    }
+
+    /** Creates this entry as a symbolic link to {@code target}; returns the WASI errno. */
+    public short createSymbolicLink(String target) {
+        if (path == null || dirFd == -1) {
+            return ERRNO_BADF;
+        }
+        byte[] targetBytes = target.getBytes(StandardCharsets.UTF_8);
+        byte[] pathBytes = path.getBytes(StandardCharsets.UTF_8);
+        return Wasi.pathSymlink(Address.ofData(targetBytes), targetBytes.length, dirFd,
+                Address.ofData(pathBytes), pathBytes.length);
+    }
+
     @Override
     public boolean isDirectory() {
+
         Stat stat = stat();
         return stat != null && stat.filetype == FILETYPE_DIRECTORY;
     }
