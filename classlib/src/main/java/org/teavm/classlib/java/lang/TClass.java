@@ -36,9 +36,11 @@ import org.teavm.classlib.java.lang.annotation.TAnnotation;
 import org.teavm.classlib.java.lang.reflect.TAnnotatedElement;
 import org.teavm.classlib.java.lang.reflect.TConstructor;
 import org.teavm.classlib.java.lang.reflect.TField;
+import org.teavm.classlib.java.lang.reflect.TInvocationTargetException;
 import org.teavm.classlib.java.lang.reflect.TMethod;
 import org.teavm.classlib.java.lang.reflect.TModifier;
 import org.teavm.classlib.java.lang.reflect.TType;
+import org.teavm.classlib.java.net.TURL;
 import org.teavm.dependency.PluggableDependency;
 import org.teavm.interop.Address;
 import org.teavm.interop.DelegateTo;
@@ -776,11 +778,39 @@ public class TClass<T> extends TObject implements TAnnotatedElement, TType {
 
     @SuppressWarnings({ "unchecked", "unused" })
     public T newInstance() throws TInstantiationException, TIllegalAccessException {
+        if (PlatformDetector.isWebAssembly()) {
+            return newInstanceViaConstructor();
+        }
         Object instance = Platform.newInstance(platformClass);
         if (instance == null) {
             throw new TInstantiationException();
         }
         return (T) instance;
+    }
+
+    // JDK semantics: the no-arg constructor runs and anything it throws, checked or not, propagates as is.
+    private T newInstanceViaConstructor() throws TInstantiationException, TIllegalAccessException {
+        if (isPrimitive() || isArray() || isInterface()) {
+            throw new TInstantiationException(getName());
+        }
+        TConstructor<T> constructor;
+        try {
+            constructor = getDeclaredConstructor();
+        } catch (TNoSuchMethodException e) {
+            TInstantiationException failure = new TInstantiationException(getName());
+            failure.initCause(e);
+            throw failure;
+        }
+        try {
+            return constructor.newInstance();
+        } catch (TInvocationTargetException e) {
+            throw TClass.<RuntimeException>rethrow(e.getTargetException());
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <E extends Throwable> E rethrow(Object throwable) throws E {
+        throw (E) throwable;
     }
 
     public TClass<?> getDeclaringClass() {
@@ -838,8 +868,16 @@ public class TClass<T> extends TObject implements TAnnotatedElement, TType {
     }
 
     public InputStream getResourceAsStream(String name) {
+        return getClassLoader().getResourceAsStream(resolveResourceName(name));
+    }
+
+    public TURL getResource(String name) {
+        return getClassLoader().getResource(resolveResourceName(name));
+    }
+
+    private String resolveResourceName(String name) {
         if (name.startsWith("/")) {
-            return getClassLoader().getResourceAsStream(name.substring(1));
+            return name.substring(1);
         }
 
         TClass<?> cls = this;
@@ -851,8 +889,7 @@ public class TClass<T> extends TObject implements TAnnotatedElement, TType {
         if (index >= 0) {
             name = prefix.substring(0, index + 1).replace('.', '/') + name;
         }
-
-        return getClassLoader().getResourceAsStream(name);
+        return name;
     }
 
     public TPackage getPackage() {

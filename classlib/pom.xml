@@ -20,7 +20,7 @@
   <parent>
     <groupId>com.fermyon</groupId>
     <artifactId>teavm</artifactId>
-    <version>0.2.7-spooler30</version>
+    <version>0.2.7-spooler34</version>
   </parent>
   <artifactId>teavm-classlib</artifactId>
 

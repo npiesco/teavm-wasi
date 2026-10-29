@@ -178,6 +178,9 @@ public class JCLPlugin implements TeaVMPlugin {
     }
 
     private void installMetadata(MetadataRegistration reg) {
+        reg.register(new MethodReference(ClasspathResources.class, "embedded", ResourceMap.class),
+                new ClasspathResourcesGenerator());
+
         reg.register(new MethodReference(DateTimeZoneProvider.class, "getResource", ResourceMap.class),
                 new TimeZoneGenerator());
         reg.register(new MethodReference(DateTimeZoneProvider.class, "getResource", ResourceMap.class),

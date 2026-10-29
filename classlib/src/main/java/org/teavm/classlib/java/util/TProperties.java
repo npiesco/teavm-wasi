@@ -255,8 +255,7 @@ public class TProperties extends THashtable<Object, Object> {
                         mode = IGNORE; // Ignore whitespace on the next line
                         continue;
                     }
-                    // fall into the next case
-                    break;
+                    // fall through: a bare \n ends the entry like \r
                 case '\r':
                     if (mode == CONTINUE) { // Part of a \r\n sequence
                         mode = IGNORE; // Ignore whitespace on the next line
