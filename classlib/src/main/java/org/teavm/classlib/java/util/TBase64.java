@@ -262,6 +262,9 @@ public final class TBase64 {
         }
 
         public byte[] decode(byte[] src) {
+            if (!mime && src.length == 1) {
+                throw new IllegalArgumentException("Input byte[] should at least have 2 bytes for base64 bytes");
+            }
             byte[] dst = new byte[src.length / 4 * 3 + 3];
             int written = decodeInto(src, 0, src.length, dst);
             return Arrays.copyOf(dst, written);
@@ -317,7 +320,8 @@ public final class TBase64 {
                     if (mime) {
                         continue;
                     }
-                    throw new IllegalArgumentException("Illegal base64 character " + Integer.toString(b, 16));
+                    // The JDK reports the offending byte as a signed value.
+                    throw new IllegalArgumentException("Illegal base64 character " + Integer.toString(src[sp - 1], 16));
                 }
                 bits |= value << shift;
                 shift -= 6;
@@ -337,9 +341,10 @@ public final class TBase64 {
             } else if (shift == 12) {
                 throw new IllegalArgumentException("Last unit does not have enough valid bits");
             }
+            // After the last unit only MIME line separators may follow. The reported index is the
+            // position after a MIME-consumed byte, as in the JDK.
             while (sp < end) {
-                if (mime && reverse[src[sp] & 0xFF] < 0) {
-                    sp++;
+                if (mime && reverse[src[sp++] & 0xFF] < 0) {
                     continue;
                 }
                 throw new IllegalArgumentException("Input byte array has incorrect ending byte at " + sp);
@@ -347,55 +352,112 @@ public final class TBase64 {
             return dp;
         }
     }
+    /**
+     * Decodes incrementally: each read consumes only the input needed to fill the caller's
+     * buffer, keeps undelivered bytes of a decoded unit for the next read, and stops reading the
+     * underlying stream at padding or end of input. A read that fails discards what it had copied.
+     */
     private static final class DecoderStream extends InputStream {
         private final InputStream in;
-        private final Decoder decoder;
-        private byte[] decoded;
-        private int position;
+        private final int[] reverse;
+        private final boolean mime;
+        private final byte[] unit = new byte[3];
+        private int unitPos;
+        private int unitLen;
+        private boolean finished;
+        private boolean closed;
 
         DecoderStream(InputStream in, Decoder decoder) {
             this.in = in;
-            this.decoder = decoder;
-        }
-
-        private void fill() throws IOException {
-            if (decoded != null) {
-                return;
-            }
-            java.io.ByteArrayOutputStream all = new java.io.ByteArrayOutputStream();
-            byte[] chunk = new byte[512];
-            int read;
-            while ((read = in.read(chunk)) > 0) {
-                all.write(chunk, 0, read);
-            }
-            try {
-                decoded = decoder.decode(all.toByteArray());
-            } catch (IllegalArgumentException e) {
-                throw new IOException(e.getMessage());
-            }
+            this.reverse = decoder.reverse;
+            this.mime = decoder.mime;
         }
 
         @Override
         public int read() throws IOException {
-            fill();
-            return position < decoded.length ? decoded[position++] & 0xFF : -1;
+            byte[] one = new byte[1];
+            return read(one, 0, 1) < 0 ? -1 : one[0] & 0xFF;
         }
 
         @Override
         public int read(byte[] b, int off, int len) throws IOException {
-            fill();
-            if (position >= decoded.length) {
-                return len == 0 ? 0 : -1;
+            if (closed) {
+                throw new IOException("Stream is closed");
             }
-            int count = Math.min(len, decoded.length - position);
-            System.arraycopy(decoded, position, b, off, count);
-            position += count;
-            return count;
+            if (off < 0 || len < 0 || len > b.length - off) {
+                throw new ArrayIndexOutOfBoundsException();
+            }
+            if (len == 0) {
+                return 0;
+            }
+            int count = 0;
+            while (count < len) {
+                if (unitPos < unitLen) {
+                    b[off + count++] = unit[unitPos++];
+                } else if (finished || !decodeUnit()) {
+                    break;
+                }
+            }
+            return count == 0 ? -1 : count;
+        }
+
+        // Decodes the next unit into `unit`; returns false when no data remains.
+        private boolean decodeUnit() throws IOException {
+            int bits = 0;
+            int symbols = 0;
+            while (symbols < 4) {
+                int c = in.read();
+                if (c < 0) {
+                    finished = true;
+                    if (symbols == 1) {
+                        throw new IOException("Base64 stream has one un-decoded dangling byte.");
+                    }
+                    return fill(bits, symbols);
+                }
+                if (c == '=') {
+                    finished = true;
+                    // The JDK reports the unit's write position: 24 minus 6 per symbol consumed.
+                    if (symbols < 2 || symbols == 2 && in.read() != '=') {
+                        throw new IOException("Illegal base64 ending sequence:" + (24 - 6 * symbols));
+                    }
+                    return fill(bits, symbols);
+                }
+                int value = reverse[c];
+                if (value < 0) {
+                    if (mime) {
+                        continue;
+                    }
+                    throw new IOException("Illegal base64 character 0x" + Integer.toHexString(c));
+                }
+                bits |= value << (18 - 6 * symbols);
+                symbols++;
+            }
+            return fill(bits, 4);
+        }
+
+        private boolean fill(int bits, int symbols) {
+            unit[0] = (byte) (bits >> 16);
+            unit[1] = (byte) (bits >> 8);
+            unit[2] = (byte) bits;
+            unitPos = 0;
+            unitLen = symbols - 1 > 0 ? symbols - 1 : 0;
+            return unitLen > 0;
+        }
+
+        @Override
+        public int available() throws IOException {
+            if (closed) {
+                throw new IOException("Stream is closed");
+            }
+            return in.available();
         }
 
         @Override
         public void close() throws IOException {
-            in.close();
+            if (!closed) {
+                closed = true;
+                in.close();
+            }
         }
     }
 }
