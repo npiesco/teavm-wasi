@@ -45,7 +45,7 @@ public class ServiceLoaderSupport extends AbstractDependencyListener implements 
     private static final MethodReference LOAD_METHOD = new MethodReference(ServiceLoader.class, "load", Class.class,
             ServiceLoader.class);
     private static final MethodDescriptor INIT_METHOD = new MethodDescriptor("<init>", void.class);
-    private Map<String, List<String>> serviceMap = new HashMap<>();
+    private Map<String, Set<String>> serviceMap = new HashMap<>();
     private ClassLoader classLoader;
 
     public ServiceLoaderSupport(ClassLoader classLoader) {
@@ -69,25 +69,42 @@ public class ServiceLoaderSupport extends AbstractDependencyListener implements 
     @Override
     public void methodReached(DependencyAgent agent, MethodDependency method) {
         MethodReference ref = method.getReference();
-        if (ref.getClassName().equals("java.util.ServiceLoader") && ref.getName().equals("loadServices")) {
-            List<ServiceLoaderFilter> filters = getFilters(agent);
-            method.getResult().propagate(agent.getType("[Ljava/lang/Object;"));
-            DependencyNode sourceNode = agent.linkMethod(LOAD_METHOD).getVariable(1).getClassValueNode();
-            sourceNode.connect(method.getResult().getArrayItem());
-            sourceNode.addConsumer(type -> {
-                CallLocation location = new CallLocation(LOAD_METHOD);
-                for (String implementationType : getImplementations(type.getName())) {
-                    if (filters.stream().anyMatch(filter -> !filter.apply(type.getName(), implementationType))) {
-                        continue;
-                    }
-                    serviceMap.computeIfAbsent(type.getName(), k -> new ArrayList<>()).add(implementationType);
-
-                    MethodReference ctor = new MethodReference(implementationType, INIT_METHOD);
-                    agent.linkMethod(ctor).addLocation(location).use();
-                    method.getResult().getArrayItem().propagate(agent.getType(implementationType));
-                }
-            });
+        if (!ref.getClassName().equals("java.util.ServiceLoader")) {
+            return;
         }
+        switch (ref.getName()) {
+            case "loadServices":
+                method.getResult().propagate(agent.getType("[Ljava/lang/Object;"));
+                linkImplementations(agent, method.getResult().getArrayItem());
+                break;
+            case "createService":
+                linkImplementations(agent, method.getResult());
+                break;
+            case "providerClass":
+                method.getResult().propagate(agent.getType("java.lang.Class"));
+                break;
+            default:
+                break;
+        }
+    }
+
+    private void linkImplementations(DependencyAgent agent, DependencyNode target) {
+        List<ServiceLoaderFilter> filters = getFilters(agent);
+        DependencyNode sourceNode = agent.linkMethod(LOAD_METHOD).getVariable(1).getClassValueNode();
+        sourceNode.connect(target);
+        sourceNode.addConsumer(type -> {
+            CallLocation location = new CallLocation(LOAD_METHOD);
+            for (String implementationType : getImplementations(type.getName())) {
+                if (filters.stream().anyMatch(filter -> !filter.apply(type.getName(), implementationType))) {
+                    continue;
+                }
+                serviceMap.computeIfAbsent(type.getName(), k -> new LinkedHashSet<>()).add(implementationType);
+
+                MethodReference ctor = new MethodReference(implementationType, INIT_METHOD);
+                agent.linkMethod(ctor).addLocation(location).use();
+                target.propagate(agent.getType(implementationType));
+            }
+        });
     }
 
     private Set<String> getImplementations(String type) {
@@ -113,8 +130,12 @@ public class ServiceLoaderSupport extends AbstractDependencyListener implements 
             if (line == null) {
                 break;
             }
+            int comment = line.indexOf('#');
+            if (comment >= 0) {
+                line = line.substring(0, comment);
+            }
             line = line.trim();
-            if (line.startsWith("#") || line.isEmpty()) {
+            if (line.isEmpty()) {
                 continue;
             }
 

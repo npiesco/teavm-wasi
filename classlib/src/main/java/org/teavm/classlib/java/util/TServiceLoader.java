@@ -15,18 +15,28 @@
  */
 package org.teavm.classlib.java.util;
 
+import org.teavm.classlib.PlatformDetector;
 import org.teavm.classlib.java.lang.*;
 import org.teavm.platform.PlatformClass;
 
 public final class TServiceLoader<S> extends TObject implements TIterable<S> {
+    private final TClass<S> service;
     private Object[] services;
+    private final TList<S> instantiated = new TArrayList<>();
+    private int nextProvider;
 
-    private TServiceLoader(Object[] services) {
-        this.services = services;
+    private TServiceLoader(TClass<S> service) {
+        this.service = service;
+        if (!PlatformDetector.isWebAssembly()) {
+            services = doLoadServices(service.getPlatformClass());
+        }
     }
 
     @Override
     public TIterator<S> iterator() {
+        if (PlatformDetector.isWebAssembly()) {
+            return new LazyIterator();
+        }
         return new TIterator<S>() {
             private int index;
             @Override public boolean hasNext() {
@@ -44,8 +54,46 @@ public final class TServiceLoader<S> extends TObject implements TIterable<S> {
         };
     }
 
+    // Providers are created one at a time as iteration reaches them and cached by this loader,
+    // so a later iterator first replays the cached providers and then continues the lookup.
+    private class LazyIterator implements TIterator<S> {
+        private int index;
+
+        @Override
+        public boolean hasNext() {
+            return index < instantiated.size() || nextProvider < serviceCount(service);
+        }
+
+        @SuppressWarnings("unchecked")
+        @Override
+        public S next() {
+            if (index < instantiated.size()) {
+                return instantiated.get(index++);
+            }
+            if (nextProvider >= serviceCount(service)) {
+                throw new TNoSuchElementException();
+            }
+            int provider = nextProvider++;
+            S instance;
+            try {
+                instance = (S) createService(service, provider);
+            } catch (Throwable e) {
+                throw new TServiceConfigurationError(service.getName() + ": Provider "
+                        + providerClass(service, provider).getName() + " could not be instantiated", e);
+            }
+            instantiated.add(instance);
+            index++;
+            return instance;
+        }
+
+        @Override
+        public void remove() {
+            throw new TUnsupportedOperationException();
+        }
+    }
+
     public static <S> TServiceLoader<S> load(TClass<S> service) {
-        return new TServiceLoader<>(doLoadServices(service.getPlatformClass()));
+        return new TServiceLoader<>(service);
     }
 
     public static <S> TServiceLoader<S> load(TClass<S> service, @SuppressWarnings("unused") TClassLoader loader) {
@@ -66,7 +114,16 @@ public final class TServiceLoader<S> extends TObject implements TIterable<S> {
 
     private static native Object[] loadServices(PlatformClass cls);
 
+    // WebAssembly: bodies are generated at build time from META-INF/services by ServiceLoaderWasmSupport.
+    private static native int serviceCount(TClass<?> service);
+
+    private static native Object createService(TClass<?> service, int index);
+
+    private static native TClass<?> providerClass(TClass<?> service, int index);
+
     public void reload() {
-        // Do nothing, services are bound at build time
+        // Eager targets bind services at build time; on WebAssembly the provider cache is cleared.
+        instantiated.clear();
+        nextProvider = 0;
     }
 }

@@ -82,6 +82,10 @@ public class JCLPlugin implements TeaVMPlugin {
             if (cHost != null) {
                 cHost.addGenerator(new ServiceLoaderCSupport());
             }
+
+            if (host.getExtension(TeaVMWasmHost.class) != null) {
+                host.add(new ServiceLoaderWasmSupport(serviceLoaderSupport));
+            }
         }
 
         if (!isBootstrap()) {
