@@ -278,6 +278,10 @@ public final class TSystem extends TObject {
         outCache = out;
     }
 
+    public static void exit(int status) {
+        TRuntime.getRuntime().exit(status);
+    }
+
     @DelegateTo("gcLowLevel")
     public static void gc() {
         // Do nothing

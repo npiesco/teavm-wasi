@@ -128,6 +128,9 @@ public final class Wasi {
     public static native short pathOpen(int dirFd, int lookupFlags, Address path, int pathLength, short oflags,
                                         long baseRights, long inheritingRights, short fdflags, Address fd);
 
+    @Import(name = "proc_exit", module = "wasi_snapshot_preview1")
+    public static native void procExit(int code);
+
     @Import(name = "random_get", module = "wasi_snapshot_preview1")
     public static native short randomGet(Address buffer, int bufferLength);
 

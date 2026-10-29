@@ -15,7 +15,9 @@
  */
 package org.teavm.classlib.java.lang;
 
+import org.teavm.classlib.PlatformDetector;
 import org.teavm.interop.DelegateTo;
+import org.teavm.interop.wasi.Wasi;
 import org.teavm.runtime.GC;
 
 /**
@@ -31,7 +33,10 @@ public class TRuntime {
      * Terminates the currently running Java application. This method never returns normally.
      * The argument serves as a status code; by convention, a nonzero status code indicates abnormal termination.
      */
-    public void exit(@SuppressWarnings("unused") int status) {
+    public void exit(int status) {
+        if (PlatformDetector.isWebAssembly()) {
+            Wasi.procExit(status);
+        }
     }
 
     /**
