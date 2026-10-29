@@ -16,7 +16,6 @@
 package org.teavm.maven;
 
 import java.io.File;
-import java.net.URLClassLoader;
 import java.rmi.NotBoundException;
 import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
@@ -45,6 +44,7 @@ import org.teavm.tooling.builder.BuildException;
 import org.teavm.tooling.builder.BuildResult;
 import org.teavm.tooling.builder.BuildStrategy;
 import org.teavm.tooling.builder.InProcessBuildStrategy;
+import org.teavm.tooling.builder.ProjectFirstResourceClassLoader;
 import org.teavm.tooling.builder.RemoteBuildStrategy;
 import org.teavm.tooling.daemon.BuildDaemon;
 import org.teavm.tooling.daemon.DaemonInfo;
@@ -251,7 +251,7 @@ public class TeaVMCompileMojo extends AbstractMojo {
         if (outOfProcess) {
             executeInSeparateProcess();
         } else {
-            executeWithBuilder(new InProcessBuildStrategy(URLClassLoader::new));
+            executeWithBuilder(new InProcessBuildStrategy(ProjectFirstResourceClassLoader::new));
         }
     }
 
