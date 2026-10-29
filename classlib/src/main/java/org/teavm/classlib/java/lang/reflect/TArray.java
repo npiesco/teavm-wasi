@@ -16,6 +16,7 @@
 package org.teavm.classlib.java.lang.reflect;
 
 import org.teavm.backend.javascript.spi.GeneratedBy;
+import org.teavm.classlib.PlatformDetector;
 import org.teavm.classlib.java.lang.TArrayIndexOutOfBoundsException;
 import org.teavm.classlib.java.lang.TClass;
 import org.teavm.classlib.java.lang.TIllegalArgumentException;
@@ -77,6 +78,9 @@ public final class TArray extends TObject {
         if (index < 0 || index >= getLength(array)) {
             throw new TArrayIndexOutOfBoundsException();
         }
+        if (PlatformDetector.isWebAssembly()) {
+            return (TObject) getElement((Object) array, index);
+        }
         return getImpl(array, index);
     }
 
@@ -85,7 +89,114 @@ public final class TArray extends TObject {
         if (index < 0 || index >= getLength(array)) {
             throw new TArrayIndexOutOfBoundsException();
         }
+        if (PlatformDetector.isWebAssembly()) {
+            setElement((Object) array, index, (Object) value);
+            return;
+        }
         setImpl(array, index, value);
+    }
+
+    // JDK Array.get: primitive elements are boxed.
+    private static Object getElement(Object array, int index) {
+        if (array instanceof Object[]) {
+            return ((Object[]) array)[index];
+        } else if (array instanceof int[]) {
+            return ((int[]) array)[index];
+        } else if (array instanceof long[]) {
+            return ((long[]) array)[index];
+        } else if (array instanceof byte[]) {
+            return ((byte[]) array)[index];
+        } else if (array instanceof short[]) {
+            return ((short[]) array)[index];
+        } else if (array instanceof char[]) {
+            return ((char[]) array)[index];
+        } else if (array instanceof float[]) {
+            return ((float[]) array)[index];
+        } else if (array instanceof double[]) {
+            return ((double[]) array)[index];
+        } else {
+            return ((boolean[]) array)[index];
+        }
+    }
+
+    // JDK Array.set: object arrays check the component type; primitive arrays
+    // unbox and apply only widening primitive conversions.
+    private static void setElement(Object array, int index, Object value) {
+        if (array instanceof Object[]) {
+            Object[] objects = (Object[]) array;
+            if (value != null && !objects.getClass().getComponentType().isInstance(value)) {
+                throw new IllegalArgumentException("array element type mismatch");
+            }
+            objects[index] = value;
+            return;
+        }
+        if (value instanceof Boolean) {
+            if (array instanceof boolean[]) {
+                ((boolean[]) array)[index] = (Boolean) value;
+                return;
+            }
+        } else if (value instanceof Character) {
+            char c = (Character) value;
+            if (array instanceof char[]) {
+                ((char[]) array)[index] = c;
+                return;
+            } else if (array instanceof int[]) {
+                ((int[]) array)[index] = c;
+                return;
+            } else if (array instanceof long[]) {
+                ((long[]) array)[index] = c;
+                return;
+            } else if (array instanceof float[]) {
+                ((float[]) array)[index] = c;
+                return;
+            } else if (array instanceof double[]) {
+                ((double[]) array)[index] = c;
+                return;
+            }
+        } else if (value instanceof Number) {
+            int rank = widthRank(value);
+            if (rank >= 0 && setNumber(array, index, (Number) value, rank)) {
+                return;
+            }
+        }
+        throw new IllegalArgumentException("argument type mismatch");
+    }
+
+    // Widening order: byte < short < int < long < float < double.
+    private static int widthRank(Object value) {
+        if (value instanceof Byte) {
+            return 0;
+        } else if (value instanceof Short) {
+            return 1;
+        } else if (value instanceof Integer) {
+            return 2;
+        } else if (value instanceof Long) {
+            return 3;
+        } else if (value instanceof Float) {
+            return 4;
+        } else if (value instanceof Double) {
+            return 5;
+        }
+        return -1;
+    }
+
+    private static boolean setNumber(Object array, int index, Number value, int rank) {
+        if (array instanceof byte[] && rank == 0) {
+            ((byte[]) array)[index] = value.byteValue();
+        } else if (array instanceof short[] && rank <= 1) {
+            ((short[]) array)[index] = value.shortValue();
+        } else if (array instanceof int[] && rank <= 2) {
+            ((int[]) array)[index] = value.intValue();
+        } else if (array instanceof long[] && rank <= 3) {
+            ((long[]) array)[index] = value.longValue();
+        } else if (array instanceof float[] && rank <= 4) {
+            ((float[]) array)[index] = value.floatValue();
+        } else if (array instanceof double[]) {
+            ((double[]) array)[index] = value.doubleValue();
+        } else {
+            return false;
+        }
+        return true;
     }
 
     @GeneratedBy(ArrayNativeGenerator.class)

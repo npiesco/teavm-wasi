@@ -174,6 +174,10 @@ public class WasmClassGenerator {
                 calculateLayout(cls, binaryData);
                 if (binaryData.start >= 0) {
                     binaryData.start = binaryWriter.append(createStructure(binaryData));
+                    // Class.getName() is never null in Java, so every class carries its name. The name is a
+                    // pooled String whose header points at java.lang.String's class record, so it can only be
+                    // created once this record (possibly java.lang.String itself) has an address.
+                    binaryData.data.setAddress(CLASS_NAME, stringPool.getStringPointer(className));
                 }
             }
         } else if (type instanceof ValueType.Array) {
@@ -287,8 +291,6 @@ public class WasmClassGenerator {
         int tag = ranges.stream().mapToInt(range -> range.lower).min().orElse(0);
         header.setInt(CLASS_TAG, tag);
         header.setInt(CLASS_CANARY, RuntimeClass.computeCanary(occupiedSize, tag));
-        int nameAddress = requirements.name() ? stringPool.getStringPointer(name) : 0;
-        header.setAddress(CLASS_NAME, nameAddress);
         header.setInt(CLASS_IS_INSTANCE, functionTable.size());
         functionTable.add(names.forSupertypeFunction(ValueType.object(name)));
         header.setAddress(CLASS_PARENT, parentPtr);
@@ -339,6 +341,9 @@ public class WasmClassGenerator {
             }
             if (cls.hasModifier(ElementModifier.SYNTHETIC)) {
                 flags |= RuntimeClass.SYNTHETIC;
+            }
+            if (cls.hasModifier(ElementModifier.INTERFACE)) {
+                flags |= RuntimeClass.INTERFACE;
             }
         }
 

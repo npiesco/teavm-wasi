@@ -798,6 +798,17 @@ public class WasmTarget implements TeaVMTarget, TeaVMWasmHost {
         }
 
         int tagOffset = classGenerator.getFieldOffset(new FieldReference(RuntimeClass.class.getName(), "tag"));
+        int flagsOffset = classGenerator.getFieldOffset(new FieldReference(RuntimeClass.class.getName(), "flags"));
+
+        // A primitive class is never a subtype of a class type. Primitive classes carry tags inside
+        // java.lang.Object's range, so without this check int[] tested as an instance of Object[].
+        WasmExpression flagsExpression = new WasmLoadInt32(4, new WasmIntBinary(WasmIntType.INT32,
+                WasmIntBinaryOperation.ADD, new WasmGetLocal(subtypeVar), new WasmInt32Constant(flagsOffset)),
+                WasmInt32Subtype.INT32);
+        WasmConditional testPrimitive = new WasmConditional(new WasmIntBinary(WasmIntType.INT32,
+                WasmIntBinaryOperation.AND, flagsExpression, new WasmInt32Constant(RuntimeClass.PRIMITIVE)));
+        testPrimitive.getThenBlock().getBody().add(new WasmReturn(new WasmInt32Constant(0)));
+        body.add(testPrimitive);
 
         WasmExpression tagExpression = new WasmGetLocal(subtypeVar);
         tagExpression = new WasmIntBinary(WasmIntType.INT32, WasmIntBinaryOperation.ADD, tagExpression,

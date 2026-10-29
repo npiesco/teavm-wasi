@@ -65,8 +65,6 @@ import org.teavm.vm.spi.TeaVMPlugin;
 public class JCLPlugin implements TeaVMPlugin {
     @Override
     public void install(TeaVMHost host) {
-        host.add(new ObfuscationHacks());
-
         if (!isBootstrap()) {
             ServiceLoaderSupport serviceLoaderSupport = new ServiceLoaderSupport(host.getClassLoader());
             host.add(serviceLoaderSupport);

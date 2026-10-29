@@ -280,7 +280,15 @@ public class TClass<T> extends TObject implements TAnnotatedElement, TType {
     }
 
     public boolean isInterface() {
+        if (PlatformDetector.isWebAssembly()) {
+            return isInterfaceLowLevel();
+        }
         return (platformClass.getMetadata().getFlags() & Flags.INTERFACE) != 0;
+    }
+
+    @Unmanaged
+    private boolean isInterfaceLowLevel() {
+        return (Address.ofObject(this).<RuntimeClass>toStructure().flags & RuntimeClass.INTERFACE) != 0;
     }
 
     public boolean isLocalClass() {
