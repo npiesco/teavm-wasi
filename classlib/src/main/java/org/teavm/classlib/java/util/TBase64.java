@@ -27,7 +27,8 @@ import java.util.Arrays;
  * java.util.Base64 (RFC 4648 basic and URL-safe alphabets, RFC 2045 MIME).
  */
 public final class TBase64 {
-    private static final char[] BASIC = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".toCharArray();
+    private static final char[] BASIC =
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".toCharArray();
     private static final char[] URL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_".toCharArray();
     private static final byte[] CRLF = { '\r', '\n' };
     private static final int MIME_LINE_MAX = 76;

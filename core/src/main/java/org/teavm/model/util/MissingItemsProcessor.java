@@ -105,6 +105,22 @@ public class MissingItemsProcessor {
         for (BasicBlock successor : transitionExtractor.getTargets()) {
             successor.removeIncomingsFrom(block);
         }
+
+        // Exception handlers keep phi incomings from this block for every value it defines; values whose
+        // definitions are deleted below can no longer reach a handler.
+        Set<Variable> removedDefinitions = new HashSet<>();
+        DefinitionExtractor definitions = new DefinitionExtractor();
+        for (Instruction removed = instruction; removed != null; removed = removed.getNext()) {
+            removed.acceptVisitor(definitions);
+            removedDefinitions.addAll(Arrays.asList(definitions.getDefinedVariables()));
+        }
+        for (TryCatchBlock tryCatch : block.getTryCatchBlocks()) {
+            for (Phi phi : tryCatch.getHandler().getPhis()) {
+                phi.getIncomings().removeIf(incoming -> incoming.getSource() == block
+                        && removedDefinitions.contains(incoming.getValue()));
+            }
+        }
+
         while (instruction.getNext() != null) {
             instruction.getNext().delete();
         }

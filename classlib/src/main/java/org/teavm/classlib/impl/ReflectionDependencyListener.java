@@ -54,7 +54,7 @@ public class ReflectionDependencyListener extends AbstractDependencyListener {
             Constructor[].class);
     private MethodReference getMethods = new MethodReference(Class.class, "getDeclaredMethods",
             Method[].class);
-    private MethodReference forName = new MethodReference(Class.class, "forName", String.class, Boolean.class,
+    private MethodReference forName = new MethodReference(Class.class, "forName", String.class, boolean.class,
             ClassLoader.class, Class.class);
     private MethodReference forNameShort = new MethodReference(Class.class, "forName", String.class, Class.class);
     private MethodReference fieldGetType = new MethodReference(Field.class, "getType", Class.class);

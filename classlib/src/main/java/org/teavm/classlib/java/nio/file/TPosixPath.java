@@ -27,7 +27,8 @@ import org.teavm.classlib.PlatformDetector;
 
 /**
  * The java.nio.file.Path implementation for the WASI target (it must live in the mapped
- * classlib tree so its TPath supertype is renamed to java.nio.file.Path). A POSIX path: '/' separators, an optional single root "/",
+ * classlib tree so its TPath supertype is renamed to java.nio.file.Path).
+ * A POSIX path: '/' separators, an optional single root "/",
  * redundant and trailing separators removed on construction.
  */
 final class TPosixPath implements TPath {

@@ -16,7 +16,6 @@
 
 package org.teavm.classlib.java.io;
 
-import org.teavm.classlib.java.nio.file.TPath;
 import java.io.File;
 import java.io.IOException;
 import java.io.Serializable;
@@ -27,6 +26,7 @@ import java.util.Objects;
 import org.teavm.classlib.fs.VirtualFile;
 import org.teavm.classlib.fs.VirtualFileSystem;
 import org.teavm.classlib.fs.VirtualFileSystemProvider;
+import org.teavm.classlib.java.nio.file.TPath;
 import org.teavm.classlib.java.util.TRandom;
 
 public class TFile implements Serializable, Comparable<TFile> {

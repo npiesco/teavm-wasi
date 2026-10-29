@@ -33,10 +33,10 @@
 package org.teavm.classlib.java.util;
 
 import org.teavm.classlib.impl.unicode.CLDRHelper;
-import org.teavm.classlib.java.text.TDateFormatSymbols;
 import org.teavm.classlib.java.io.TSerializable;
 import org.teavm.classlib.java.lang.TCloneable;
 import org.teavm.classlib.java.lang.TComparable;
+import org.teavm.classlib.java.text.TDateFormatSymbols;
 import org.teavm.platform.metadata.IntResource;
 import org.teavm.platform.metadata.ResourceMap;
 

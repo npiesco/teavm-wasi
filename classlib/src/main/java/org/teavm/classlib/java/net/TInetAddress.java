@@ -26,7 +26,8 @@ public class TInetAddress {
     }
 
     public static TInetAddress getLocalHost() {
-        throw new UnsupportedOperationException("java.net.InetAddress.getLocalHost is not supported on the WASI target");
+        throw new UnsupportedOperationException(
+                "java.net.InetAddress.getLocalHost is not supported on the WASI target");
     }
 
     public static TInetAddress getByName(String host) {

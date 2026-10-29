@@ -41,6 +41,15 @@ public abstract class TClassLoader extends TObject {
         return parent;
     }
 
+    public TClass<?> loadClass(String name) throws TClassNotFoundException {
+        return loadClass(name, false);
+    }
+
+    // Classes are bound at build time, so loading delegates to the closed-world lookup without initializing.
+    protected TClass<?> loadClass(String name, boolean resolve) throws TClassNotFoundException {
+        return TClass.forName((TString) (Object) name, false, this);
+    }
+
     public static TClassLoader getSystemClassLoader() {
         return systemClassLoader;
     }

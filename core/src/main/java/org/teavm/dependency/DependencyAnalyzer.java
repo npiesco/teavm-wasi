@@ -388,7 +388,7 @@ public abstract class DependencyAnalyzer implements DependencyInfo {
 
     public ClassDependency linkClass(String className) {
         if (completing && getClass(className) == null) {
-            throw new IllegalStateException("Can't link class during completion phase");
+            throw new IllegalStateException("Can't link class " + className + " during completion phase");
         }
         ClassDependency dep = classCache.apply(className);
         if (!dep.activated) {

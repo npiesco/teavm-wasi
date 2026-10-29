@@ -420,25 +420,30 @@ public class TClass<T> extends TObject implements TAnnotatedElement, TType {
         }
 
         if (declaredConstructors == null) {
-            initReflection();
-            JSClass jsClass = (JSClass) getPlatformClass().getMetadata();
-            JSArray<JSMethodMember> jsMethods = jsClass.getMethods();
-            declaredConstructors = new TConstructor[jsMethods.getLength()];
-            int count = 0;
-            for (int i = 0; i < jsMethods.getLength(); ++i) {
-                JSMethodMember jsMethod = jsMethods.get(i);
-                if (!jsMethod.getName().equals("<init>")) {
-                    continue;
+            if (PlatformDetector.isWebAssembly()) {
+                declaredConstructors = TConstructor.wasmDeclaredConstructors(this);
+            } else {
+                initReflection();
+                JSClass jsClass = (JSClass) getPlatformClass().getMetadata();
+                JSArray<JSMethodMember> jsMethods = jsClass.getMethods();
+                declaredConstructors = new TConstructor[jsMethods.getLength()];
+                int count = 0;
+                for (int i = 0; i < jsMethods.getLength(); ++i) {
+                    JSMethodMember jsMethod = jsMethods.get(i);
+                    if (!jsMethod.getName().equals("<init>")) {
+                        continue;
+                    }
+                    PlatformSequence<PlatformClass> jsParameterTypes = jsMethod.getParameterTypes();
+                    TClass<?>[] parameterTypes = new TClass<?>[jsParameterTypes.getLength()];
+                    for (int j = 0; j < parameterTypes.length; ++j) {
+                        parameterTypes[j] = getClass(jsParameterTypes.get(j));
+                    }
+                    declaredConstructors[count++] = new TConstructor<T>(this, jsMethod.getName(),
+                            jsMethod.getModifiers(), jsMethod.getAccessLevel(), parameterTypes,
+                            jsMethod.getCallable());
                 }
-                PlatformSequence<PlatformClass> jsParameterTypes = jsMethod.getParameterTypes();
-                TClass<?>[] parameterTypes = new TClass<?>[jsParameterTypes.getLength()];
-                for (int j = 0; j < parameterTypes.length; ++j) {
-                    parameterTypes[j] = getClass(jsParameterTypes.get(j));
-                }
-                declaredConstructors[count++] = new TConstructor<T>(this, jsMethod.getName(), jsMethod.getModifiers(),
-                        jsMethod.getAccessLevel(), parameterTypes, jsMethod.getCallable());
+                declaredConstructors = Arrays.copyOf(declaredConstructors, count);
             }
-            declaredConstructors = Arrays.copyOf(declaredConstructors, count);
         }
         return declaredConstructors.clone();
     }
@@ -469,7 +474,20 @@ public class TClass<T> extends TObject implements TAnnotatedElement, TType {
                 return (TConstructor<T>) constructor;
             }
         }
-        throw new TNoSuchMethodException();
+        throw new TNoSuchMethodException(constructorToString(parameterTypes));
+    }
+
+    private String constructorToString(TClass<?>[] parameterTypes) {
+        StringBuilder sb = new StringBuilder(getName()).append(".<init>(");
+        if (parameterTypes != null) {
+            for (int i = 0; i < parameterTypes.length; ++i) {
+                if (i > 0) {
+                    sb.append(',');
+                }
+                sb.append(parameterTypes[i] == null ? "null" : parameterTypes[i].getName());
+            }
+        }
+        return sb.append(')').toString();
     }
 
     @SuppressWarnings({ "raw", "unchecked" })
@@ -481,7 +499,7 @@ public class TClass<T> extends TObject implements TAnnotatedElement, TType {
                 return (TConstructor<T>) constructor;
             }
         }
-        throw new TNoSuchMethodException();
+        throw new TNoSuchMethodException(constructorToString(parameterTypes));
     }
 
     private static void getFieldsOfInterfaces(TClass<?> iface, List<TField> fields, Set<TClass<?>> visited) {
@@ -738,6 +756,16 @@ public class TClass<T> extends TObject implements TAnnotatedElement, TType {
     @SuppressWarnings("unused")
     public static TClass<?> forName(TString name, boolean initialize, TClassLoader loader)
             throws TClassNotFoundException {
+        if (PlatformDetector.isWebAssembly()) {
+            TClass<?> found = lookupLowLevel(name.toString());
+            if (found == null) {
+                throw new TClassNotFoundException(name.toString());
+            }
+            if (initialize) {
+                found.initialize();
+            }
+            return found;
+        }
         return forName(name);
     }
 

@@ -723,7 +723,12 @@ public class TeaVM implements TeaVMHost, ServiceRepository {
     }
 
     private Program optimizeMethodCacheMiss(MethodHolder method, Program optimizedProgram) {
-        target.beforeOptimizations(optimizedProgram, method);
+        try {
+            target.beforeOptimizations(optimizedProgram, method);
+        } catch (RuntimeException | AssertionError e) {
+            throw new IllegalStateException("Error preparing program for method " + method.getReference()
+                    + ":\n" + new ListingBuilder().buildListing(optimizedProgram, "    "), e);
+        }
 
         if (optimizedProgram.basicBlockCount() > 0) {
             MethodOptimizationContextImpl context = new MethodOptimizationContextImpl(method);
