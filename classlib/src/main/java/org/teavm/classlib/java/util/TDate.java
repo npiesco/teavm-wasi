@@ -63,7 +63,9 @@ public class TDate implements TComparable<TDate> {
 
     @Deprecated
     public TDate(int year, int month, int date, int hrs, int min, int sec) {
-        this(PlatformDetector.isLowLevel()
+        this(PlatformDetector.isWebAssembly()
+                ? composeUtc(year, month, date, hrs, min, sec)
+                : PlatformDetector.isLowLevel()
                 ? initDateLowLevel(year, month, date, hrs, min, sec)
                 : (long) JSDate.create(year, month, date, hrs, min, sec).getTime());
         if (!PlatformDetector.isLowLevel()) {
@@ -89,6 +91,9 @@ public class TDate implements TComparable<TDate> {
 
     @Deprecated
     public static long UTC(int year, int month, int date, int hrs, int min, int sec) {
+        if (PlatformDetector.isWebAssembly()) {
+            return composeUtc(year, month, date, hrs, min, sec);
+        }
         if (PlatformDetector.isLowLevel()) {
             return initUtcDateLowLevel(year, month, date, hrs, min, sec);
         } else {
@@ -125,6 +130,9 @@ public class TDate implements TComparable<TDate> {
 
     @Deprecated
     public int getYear() {
+        if (PlatformDetector.isWebAssembly()) {
+            return fieldsUtc(value)[0];
+        }
         if (PlatformDetector.isLowLevel()) {
             return getYearLowLevel(value);
         }
@@ -140,6 +148,10 @@ public class TDate implements TComparable<TDate> {
 
     @Deprecated
     public void setYear(int year) {
+        if (PlatformDetector.isWebAssembly()) {
+            setFieldUtc(0, year);
+            return;
+        }
         if (PlatformDetector.isLowLevel()) {
             value = setYearLowLevel(value, year);
             return;
@@ -158,6 +170,9 @@ public class TDate implements TComparable<TDate> {
 
     @Deprecated
     public int getMonth() {
+        if (PlatformDetector.isWebAssembly()) {
+            return fieldsUtc(value)[1];
+        }
         if (PlatformDetector.isLowLevel()) {
             return getMonthLowLevel(value);
         }
@@ -173,6 +188,10 @@ public class TDate implements TComparable<TDate> {
 
     @Deprecated
     public void setMonth(int month) {
+        if (PlatformDetector.isWebAssembly()) {
+            setFieldUtc(1, month);
+            return;
+        }
         if (PlatformDetector.isLowLevel()) {
             value = setMonthLowLevel(value, month);
             return;
@@ -191,6 +210,9 @@ public class TDate implements TComparable<TDate> {
 
     @Deprecated
     public int getDate() {
+        if (PlatformDetector.isWebAssembly()) {
+            return fieldsUtc(value)[2];
+        }
         if (PlatformDetector.isLowLevel()) {
             return getDateLowLevel(value);
         }
@@ -206,6 +228,10 @@ public class TDate implements TComparable<TDate> {
 
     @Deprecated
     public void setDate(int date) {
+        if (PlatformDetector.isWebAssembly()) {
+            setFieldUtc(2, date);
+            return;
+        }
         if (PlatformDetector.isLowLevel()) {
             value = setDateLowLevel(value, date);
             return;
@@ -224,6 +250,9 @@ public class TDate implements TComparable<TDate> {
 
     @Deprecated
     public int getDay() {
+        if (PlatformDetector.isWebAssembly()) {
+            return fieldsUtc(value)[7];
+        }
         if (PlatformDetector.isLowLevel()) {
             return getDayLowLevel(value);
         }
@@ -237,6 +266,9 @@ public class TDate implements TComparable<TDate> {
 
     @Deprecated
     public int getHours() {
+        if (PlatformDetector.isWebAssembly()) {
+            return fieldsUtc(value)[3];
+        }
         if (PlatformDetector.isLowLevel()) {
             return getHoursLowLevel(value);
         }
@@ -252,6 +284,10 @@ public class TDate implements TComparable<TDate> {
 
     @Deprecated
     public void setHours(int hours) {
+        if (PlatformDetector.isWebAssembly()) {
+            setFieldUtc(3, hours);
+            return;
+        }
         if (PlatformDetector.isLowLevel()) {
             value = setHoursLowLevel(value, hours);
             return;
@@ -270,6 +306,9 @@ public class TDate implements TComparable<TDate> {
 
     @Deprecated
     public int getMinutes() {
+        if (PlatformDetector.isWebAssembly()) {
+            return fieldsUtc(value)[4];
+        }
         if (PlatformDetector.isLowLevel()) {
             return getMinutesLowLevel(value);
         }
@@ -285,6 +324,10 @@ public class TDate implements TComparable<TDate> {
 
     @Deprecated
     public void setMinutes(int minutes) {
+        if (PlatformDetector.isWebAssembly()) {
+            setFieldUtc(4, minutes);
+            return;
+        }
         if (PlatformDetector.isLowLevel()) {
             value = setMinutesLowLevel(value, minutes);
             return;
@@ -303,6 +346,9 @@ public class TDate implements TComparable<TDate> {
 
     @Deprecated
     public int getSeconds() {
+        if (PlatformDetector.isWebAssembly()) {
+            return fieldsUtc(value)[5];
+        }
         if (PlatformDetector.isLowLevel()) {
             return getSecondsLowLevel(value);
         }
@@ -318,6 +364,10 @@ public class TDate implements TComparable<TDate> {
 
     @Deprecated
     public void setSeconds(int seconds) {
+        if (PlatformDetector.isWebAssembly()) {
+            setFieldUtc(5, seconds);
+            return;
+        }
         if (PlatformDetector.isLowLevel()) {
             value = setSecondsLowLevel(value, seconds);
             return;
@@ -371,6 +421,16 @@ public class TDate implements TComparable<TDate> {
 
     @Override
     public String toString() {
+        if (PlatformDetector.isWebAssembly()) {
+            int[] f = fieldsUtc(value);
+            StringBuilder sb = new StringBuilder();
+            sb.append(DAY_NAMES[f[7]]).append(' ').append(MONTH_NAMES[f[1]]).append(' ');
+            pad2(sb, f[2]).append(' ');
+            pad2(sb, f[3]).append(':');
+            pad2(sb, f[4]).append(':');
+            pad2(sb, f[5]).append(" UTC ").append(1900L + f[0]);
+            return sb.toString();
+        }
         if (PlatformDetector.isLowLevel()) {
             return toStringLowLevel(value);
         } else {
@@ -391,11 +451,74 @@ public class TDate implements TComparable<TDate> {
 
     @Deprecated
     public String toGMTString() {
+        if (PlatformDetector.isWebAssembly()) {
+            int[] f = fieldsUtc(value);
+            StringBuilder sb = new StringBuilder();
+            sb.append(f[2]).append(' ').append(MONTH_NAMES[f[1]]).append(' ').append(1900L + f[0]).append(' ');
+            pad2(sb, f[3]).append(':');
+            pad2(sb, f[4]).append(':');
+            pad2(sb, f[5]).append(" GMT");
+            return sb.toString();
+        }
         return JSDate.create(value).toUTCString();
     }
 
     @Deprecated
     public int getTimezoneOffset() {
         return -TimeZone.getDefault().getOffset(value) / (1000 * 60);
+    }
+
+    // WebAssembly (WASI) has no time-zone data: java.util.Date operates in UTC,
+    // exactly as a JVM started with -Duser.timezone=UTC. Proleptic Gregorian
+    // arithmetic from Howard Hinnant's days_from_civil / civil_from_days.
+    private static final long MS_PER_DAY = 86400000L;
+    private static final String[] DAY_NAMES = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
+    private static final String[] MONTH_NAMES = { "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+            "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+
+    private static long daysFromCivil(long y, int m, int d) {
+        y -= m <= 2 ? 1 : 0;
+        long era = Math.floorDiv(y, 400L);
+        long yoe = y - era * 400;
+        long doy = (153L * (m > 2 ? m - 3 : m + 9) + 2) / 5 + d - 1;
+        long doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+        return era * 146097 + doe - 719468;
+    }
+
+    private static long composeUtc(int year, int month, int date, int hrs, int min, int sec) {
+        long y = 1900L + year + Math.floorDiv(month, 12);
+        int m = Math.floorMod(month, 12) + 1;
+        long days = daysFromCivil(y, m, 1) + (date - 1L);
+        return days * MS_PER_DAY + hrs * 3600000L + min * 60000L + sec * 1000L;
+    }
+
+    // {year - 1900, month (0-11), date, hours, minutes, seconds, millis, day-of-week (0=Sunday)}
+    private static int[] fieldsUtc(long time) {
+        long days = Math.floorDiv(time, MS_PER_DAY);
+        long msOfDay = Math.floorMod(time, MS_PER_DAY);
+        long z = days + 719468;
+        long era = Math.floorDiv(z, 146097L);
+        long doe = z - era * 146097;
+        long yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+        long doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+        long mp = (5 * doy + 2) / 153;
+        int d = (int) (doy - (153 * mp + 2) / 5 + 1);
+        int m = (int) (mp < 10 ? mp + 3 : mp - 9);
+        long y = yoe + era * 400 + (m <= 2 ? 1 : 0);
+        return new int[] { (int) (y - 1900), m - 1, d, (int) (msOfDay / 3600000), (int) (msOfDay / 60000 % 60),
+                (int) (msOfDay / 1000 % 60), (int) (msOfDay % 1000), (int) Math.floorMod(days + 4, 7L) };
+    }
+
+    private void setFieldUtc(int index, int fieldValue) {
+        int[] f = fieldsUtc(value);
+        f[index] = fieldValue;
+        value = composeUtc(f[0], f[1], f[2], f[3], f[4], f[5]) + f[6];
+    }
+
+    private static StringBuilder pad2(StringBuilder sb, int v) {
+        if (v < 10) {
+            sb.append('0');
+        }
+        return sb.append(v);
     }
 }

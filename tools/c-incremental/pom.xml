@@ -20,7 +20,7 @@
   <parent>
     <groupId>com.fermyon</groupId>
     <artifactId>teavm</artifactId>
-    <version>0.2.7-spooler3</version>
+    <version>0.2.7-spooler4</version>
     <relativePath>../../pom.xml</relativePath>
   </parent>
   <artifactId>teavm-c-incremental</artifactId>
