@@ -1,5 +1,5 @@
 /*
- *  Copyright 2024 Spooler contributors.
+ *  Copyright 2026 Spooler contributors.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -15,16 +15,17 @@
  */
 package org.teavm.classlib.java.nio.file;
 
-/**
- * Minimal emulation of {@code java.nio.file.Paths}. Real path resolution is not
- * wired to WASI; the factory exists so reachable references link and throws
- * clearly if a WASI module actually attempts to resolve a filesystem path.
- */
+import java.net.URI;
+
 public final class TPaths {
     private TPaths() {
     }
 
     public static TPath get(String first, String... more) {
-        throw new UnsupportedOperationException("java.nio.file.Paths.get is not supported on the WASI target");
+        return TPath.of(first, more);
+    }
+
+    public static TPath get(URI uri) {
+        return TPath.of(uri);
     }
 }

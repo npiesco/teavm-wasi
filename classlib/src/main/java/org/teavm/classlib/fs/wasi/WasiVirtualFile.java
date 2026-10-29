@@ -70,33 +70,51 @@ public class WasiVirtualFile implements VirtualFile {
             path = path.substring(0, path.length() - 1);
         }
 
+        // Requested paths and preopen names are compared in the same form: no leading "/" or
+        // "./", no trailing "/". A preopen named "/" or "." is the root and matches every path;
+        // the longest matching preopen wins.
         List<Preopened> list = getPreopened();
         int bestFd = -1;
-        String bestName = "";
+        String bestName = null;
         for (Preopened preopened : list) {
-            if (path.equals(preopened.name)) {
+            String name = normalizePreopenName(preopened.name);
+            if (path.equals(name)) {
                 bestFd = preopened.fd;
-                bestName = "";
-                path = null;
+                bestName = name;
                 break;
             }
-
-            if (preopened.name.length() > bestName.length()
-                && (path.startsWith(preopened.name + "/")
-                    || preopened.name.equals("/"))) {
+            boolean matches = name.isEmpty() || path.startsWith(name + "/");
+            if (matches && (bestName == null || name.length() > bestName.length())) {
                 bestFd = preopened.fd;
-                bestName = preopened.name;
+                bestName = name;
             }
         }
 
         if (bestFd == -1) {
             path = null;
-        } else if (path != null && path.startsWith(bestName + "/")) {
+        } else if (path.equals(bestName)) {
+            path = null;
+        } else if (!bestName.isEmpty()) {
             path = path.substring(bestName.length() + 1);
+        } else if (path.isEmpty()) {
+            path = null;
         }
 
         this.dirFd = bestFd;
         this.path = path;
+    }
+
+    private static String normalizePreopenName(String name) {
+        while (name.startsWith("./")) {
+            name = name.substring(2);
+        }
+        while (name.startsWith("/")) {
+            name = name.substring(1);
+        }
+        while (name.endsWith("/")) {
+            name = name.substring(0, name.length() - 1);
+        }
+        return name.equals(".") ? "" : name;
     }
 
     static List<Preopened> getPreopened() {

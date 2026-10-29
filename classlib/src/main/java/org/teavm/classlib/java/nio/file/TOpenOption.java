@@ -1,5 +1,5 @@
 /*
- *  Copyright 2024 Spooler contributors.
+ *  Copyright 2026 Spooler contributors.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -15,9 +15,5 @@
  */
 package org.teavm.classlib.java.nio.file;
 
-/**
- * Marker emulation of {@code java.nio.file.OpenOption}. Present so that
- * reachable signatures referencing it link; no WASI behavior is attached.
- */
 public interface TOpenOption {
 }

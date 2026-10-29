@@ -16,6 +16,7 @@
 
 package org.teavm.classlib.java.io;
 
+import org.teavm.classlib.java.nio.file.TPath;
 import java.io.File;
 import java.io.IOException;
 import java.io.Serializable;
@@ -112,6 +113,10 @@ public class TFile implements Serializable, Comparable<TFile> {
 
     public String getPath() {
         return path;
+    }
+
+    public TPath toPath() {
+        return TPath.of(path);
     }
 
     public String getName() {
