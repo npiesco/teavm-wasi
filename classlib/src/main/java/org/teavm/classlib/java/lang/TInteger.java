@@ -368,4 +368,38 @@ public class TInteger extends TNumber implements TComparable<TInteger> {
     @InjectedBy(IntegerNativeGenerator.class)
     @NoSideEffects
     public static native int remainderUnsigned(int dividend, int divisor);
+
+    public static int compareUnsigned(int x, int y) {
+        return compare(x ^ MIN_VALUE, y ^ MIN_VALUE);
+    }
+
+    public static long toUnsignedLong(int x) {
+        return x & 0xFFFFFFFFL;
+    }
+
+    public static String toUnsignedString(int i) {
+        return TLong.toString(toUnsignedLong(i));
+    }
+
+    public static String toUnsignedString(int i, int radix) {
+        return TLong.toString(toUnsignedLong(i), radix);
+    }
+
+    public static int parseUnsignedInt(String s) throws TNumberFormatException {
+        return parseUnsignedInt(s, 10);
+    }
+
+    public static int parseUnsignedInt(String s, int radix) throws TNumberFormatException {
+        if (s == null) {
+            throw new TNumberFormatException("Cannot parse null string");
+        }
+        if (!s.isEmpty() && s.charAt(0) == '-') {
+            throw new TNumberFormatException("Illegal leading minus sign on unsigned string " + s + ".");
+        }
+        long value = TLong.parseLong(s, radix);
+        if ((value & 0xFFFFFFFF00000000L) != 0) {
+            throw new TNumberFormatException("String value " + s + " exceeds range of unsigned int.");
+        }
+        return (int) value;
+    }
 }

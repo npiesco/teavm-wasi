@@ -658,6 +658,30 @@ public class TGregorianCalendar extends TCalendar {
     }
 
     @Override
+    public boolean isWeekDateSupported() {
+        return true;
+    }
+
+    // The week-based year: a WEEK_OF_YEAR 1 that falls in December belongs to the next
+    // year, and a week 52/53 that falls in January belongs to the previous one.
+    @Override
+    public int getWeekYear() {
+        int year = get(YEAR);
+        if (get(ERA) == BC) {
+            year = 1 - year;
+        }
+        int weekOfYear = get(WEEK_OF_YEAR);
+        if (get(MONTH) == JANUARY) {
+            if (weekOfYear >= 52) {
+                --year;
+            }
+        } else if (weekOfYear == 1) {
+            ++year;
+        }
+        return year;
+    }
+
+    @Override
     public int getActualMaximum(int field) {
         int value = maximums[field];
         if (value == leastMaximums[field]) {

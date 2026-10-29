@@ -33,6 +33,7 @@
 package org.teavm.classlib.java.util;
 
 import org.teavm.classlib.impl.unicode.CLDRHelper;
+import org.teavm.classlib.java.text.TDateFormatSymbols;
 import org.teavm.classlib.java.io.TSerializable;
 import org.teavm.classlib.java.lang.TCloneable;
 import org.teavm.classlib.java.lang.TComparable;
@@ -121,6 +122,16 @@ public abstract class TCalendar implements TSerializable, TCloneable, TComparabl
     public static final int DAY_OF_WEEK_IN_MONTH = 8;
 
     public static final int AM_PM = 9;
+
+    public static final int ALL_STYLES = 0;
+    public static final int SHORT = 1;
+    public static final int LONG = 2;
+    public static final int NARROW_FORMAT = 4;
+    public static final int NARROW_STANDALONE = NARROW_FORMAT | 0x8000;
+    public static final int SHORT_FORMAT = 1;
+    public static final int LONG_FORMAT = 2;
+    public static final int SHORT_STANDALONE = SHORT | 0x8000;
+    public static final int LONG_STANDALONE = LONG | 0x8000;
 
     public static final int HOUR = 10;
 
@@ -324,6 +335,75 @@ public abstract class TCalendar implements TSerializable, TCloneable, TComparabl
 
     public int getFirstDayOfWeek() {
         return firstDayOfWeek;
+    }
+
+    // Textual names from the locale's CLDR date-format symbols. Stand-alone styles share the
+    // format names; narrow names are not part of the CLDR data this classlib carries, so a
+    // narrow request has no string representation (null), as the Calendar contract allows.
+    public String getDisplayName(int field, int style, TLocale locale) {
+        String[] names = displayNames(field, style & ~0x8000, locale);
+        if (names == null) {
+            return null;
+        }
+        int value = get(field);
+        return value >= 0 && value < names.length && names[value] != null && !names[value].isEmpty()
+                ? names[value] : null;
+    }
+
+    public TMap<String, Integer> getDisplayNames(int field, int style, TLocale locale) {
+        if (locale == null) {
+            throw new NullPointerException();
+        }
+        int base = style & ~0x8000;
+        TMap<String, Integer> result = new THashMap<>();
+        if (base == ALL_STYLES) {
+            boolean any = addNames(result, displayNames(field, SHORT, locale));
+            any |= addNames(result, displayNames(field, LONG, locale));
+            return any ? result : null;
+        }
+        if (base != SHORT && base != LONG && base != NARROW_FORMAT) {
+            throw new IllegalArgumentException();
+        }
+        return addNames(result, displayNames(field, base, locale)) ? result : null;
+    }
+
+    private static boolean addNames(TMap<String, Integer> target, String[] names) {
+        if (names == null) {
+            return false;
+        }
+        for (int i = 0; i < names.length; ++i) {
+            if (names[i] != null && !names[i].isEmpty()) {
+                target.put(names[i], i);
+            }
+        }
+        return true;
+    }
+
+    private static String[] displayNames(int field, int style, TLocale locale) {
+        if (style != SHORT && style != LONG) {
+            return null;
+        }
+        TDateFormatSymbols symbols = TDateFormatSymbols.getInstance(locale);
+        switch (field) {
+            case ERA:
+                return symbols.getEras();
+            case MONTH:
+                return style == LONG ? symbols.getMonths() : symbols.getShortMonths();
+            case DAY_OF_WEEK:
+                return style == LONG ? symbols.getWeekdays() : symbols.getShortWeekdays();
+            case AM_PM:
+                return symbols.getAmPmStrings();
+            default:
+                return null;
+        }
+    }
+
+    public boolean isWeekDateSupported() {
+        return false;
+    }
+
+    public int getWeekYear() {
+        throw new UnsupportedOperationException();
     }
 
     abstract public int getGreatestMinimum(int field);

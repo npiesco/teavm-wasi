@@ -359,4 +359,24 @@ public class TLong extends TNumber implements TComparable<TLong> {
     @GeneratedBy(LongNativeGenerator.class)
     @NoSideEffects
     public static native long remainderUnsigned(long dividend, long divisor);
+
+    public static int compareUnsigned(long x, long y) {
+        return compare(x ^ MIN_VALUE, y ^ MIN_VALUE);
+    }
+
+    public static String toUnsignedString(long i) {
+        return toUnsignedString(i, 10);
+    }
+
+    public static String toUnsignedString(long i, int radix) {
+        if (i >= 0) {
+            return toString(i, radix);
+        }
+        if (radix < Character.MIN_RADIX || radix > Character.MAX_RADIX) {
+            radix = 10;
+        }
+        long quotient = divideUnsigned(i, radix);
+        long remainder = i - quotient * radix;
+        return toString(quotient, radix) + Character.forDigit((int) remainder, radix);
+    }
 }

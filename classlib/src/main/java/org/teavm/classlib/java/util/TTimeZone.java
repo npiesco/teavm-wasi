@@ -462,6 +462,10 @@ public abstract class TTimeZone implements Serializable, Cloneable {
      */
     abstract public boolean useDaylightTime();
 
+    public boolean observesDaylightTime() {
+        return useDaylightTime() || inDaylightTime(new TDate());
+    }
+
     /**
      * Gets the name and the details of the user-selected TimeZone on the
      * device.

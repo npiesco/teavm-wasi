@@ -131,6 +131,10 @@ public interface TStream<T> extends TBaseStream<T, TStream<T>> {
         return new TSingleStreamImpl<>(t);
     }
 
+    static <T> TStream<T> ofNullable(T t) {
+        return t == null ? empty() : of(t);
+    }
+
     @SafeVarargs
     static <T> TStream<T> of(T... values) {
         return new TArrayStreamImpl<>(values, 0, values.length);

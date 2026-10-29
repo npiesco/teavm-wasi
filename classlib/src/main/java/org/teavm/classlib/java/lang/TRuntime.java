@@ -71,6 +71,11 @@ public class TRuntime {
         return instance;
     }
 
+    // WASI preview 1 runs a single thread of execution.
+    public int availableProcessors() {
+        return 1;
+    }
+
     /**
      * Returns the total amount of memory in the Java Virtual Machine. The value
      * returned by this method may vary over time, depending on the host
