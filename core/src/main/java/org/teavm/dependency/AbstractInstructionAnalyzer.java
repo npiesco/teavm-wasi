@@ -68,7 +68,8 @@ abstract class AbstractInstructionAnalyzer extends AbstractInstructionReader {
         DependencyNode node = getNode(receiver);
         if (node != null) {
             node.propagate(getAnalyzer().getType("java.lang.Class"));
-            if (!(cst instanceof ValueType.Primitive)) {
+            // void.class is a primitive class too (Class.isPrimitive), not a class named "V".
+            if (!(cst instanceof ValueType.Primitive) && cst != ValueType.VOID) {
                 StringBuilder sb = new StringBuilder();
                 if (cst instanceof ValueType.Object) {
                     sb.append(((ValueType.Object) cst).getClassName());

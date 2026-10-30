@@ -90,7 +90,12 @@ class DependencyGraphBuilder {
         }
         DependencyNode[] nodeClasses = Arrays.copyOf(dep.getVariables(), nodeClassCount);
         MethodReference ref = method.getReference();
-        for (int i = dep.getVariableCount(); i < nodeClasses.length; ++i) {
+        // When a method's program is replaced (submitMethod during completion, which may repeat), its previous
+        // per-variable node array has null holes for variables that had no node; every packed class needs one.
+        for (int i = 0; i < nodeClasses.length; ++i) {
+            if (nodeClasses[i] != null) {
+                continue;
+            }
             nodeClasses[i] = dependencyAnalyzer.createNode();
             nodeClasses[i].method = ref;
             if (DependencyAnalyzer.shouldTag) {
@@ -377,6 +382,11 @@ class DependencyGraphBuilder {
                 actualArgs[i + 1] = nodes[arguments.get(i).getIndex()];
             }
             actualArgs[0] = getNode(instance);
+            if (actualArgs[0] == null) {
+                throw new IllegalStateException("No dependency node for receiver " + instance.getIndex()
+                        + " of virtual call to " + method + " in " + caller + ":\n"
+                        + new ListingBuilder().buildListing(program, "    "));
+            }
             DependencyConsumer listener = new VirtualCallConsumer(getNode(instance),
                     method.getClassName(), method.getDescriptor(), dependencyAnalyzer, actualArgs,
                     receiver != null ? getNode(receiver) : null, getCallLocation(),

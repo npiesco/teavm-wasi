@@ -75,6 +75,7 @@ public final class ModelUtils {
             copy.setProgram(ProgramUtils.copy(method.getProgram()));
         }
         copyAnnotations(method.getAnnotations(), copy.getAnnotations());
+        copy.setExceptionTypes(method.getExceptionTypes());
         if (method.getAnnotationDefault() != null) {
             copy.setAnnotationDefault(copyAnnotationValue(method.getAnnotationDefault()));
         }

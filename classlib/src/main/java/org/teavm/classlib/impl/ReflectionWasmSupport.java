@@ -71,6 +71,27 @@ public class ReflectionWasmSupport extends AbstractDependencyListener {
             CLASS, ValueType.INTEGER, OBJECT, OBJECT);
     private static final MethodReference FIELD_SET = new MethodReference(FIELD, "wasmFieldSet",
             CLASS, ValueType.INTEGER, OBJECT, OBJECT, ValueType.VOID);
+    private static final MethodReference CONSTRUCTOR_EXCEPTION_TYPES = new MethodReference(CONSTRUCTOR,
+            "wasmConstructorExceptionTypes", CLASS, ValueType.INTEGER, ValueType.arrayOf(CLASS));
+    private static final String METHOD = "java.lang.reflect.Method";
+    private static final MethodReference METHODS_DECLARED = new MethodReference(METHOD, "wasmDeclaredMethods",
+            CLASS, ValueType.arrayOf(ValueType.object(METHOD)));
+    private static final MethodReference METHOD_COUNT = new MethodReference(METHOD, "wasmMethodCount",
+            CLASS, ValueType.INTEGER);
+    private static final MethodReference METHOD_MODIFIERS = new MethodReference(METHOD, "wasmMethodModifiers",
+            CLASS, ValueType.INTEGER, ValueType.INTEGER);
+    private static final MethodReference METHOD_NAME = new MethodReference(METHOD, "wasmMethodName",
+            CLASS, ValueType.INTEGER, ValueType.object("java.lang.String"));
+    private static final MethodReference METHOD_RETURN_TYPE = new MethodReference(METHOD, "wasmMethodReturnType",
+            CLASS, ValueType.INTEGER, CLASS);
+    private static final MethodReference METHOD_PARAMETER_TYPES = new MethodReference(METHOD,
+            "wasmMethodParameterTypes", CLASS, ValueType.INTEGER, ValueType.arrayOf(CLASS));
+    private static final MethodReference METHOD_EXCEPTION_TYPES = new MethodReference(METHOD,
+            "wasmMethodExceptionTypes", CLASS, ValueType.INTEGER, ValueType.arrayOf(CLASS));
+    private static final MethodReference METHOD_INVOKE = new MethodReference(METHOD, "wasmInvoke",
+            CLASS, ValueType.INTEGER, OBJECT, ValueType.arrayOf(OBJECT), OBJECT);
+    private static final MethodReference GET_INTERFACES = new MethodReference("java.lang.Class", "getInterfaces",
+            ValueType.arrayOf(CLASS));
     // Mirrors TConstructor.WASM_CLASS_ABSTRACT / WASM_CLASS_ENUM.
     private static final int CLASS_ABSTRACT = 1 << 20;
     private static final int CLASS_ENUM = 1 << 21;
@@ -83,7 +104,11 @@ public class ReflectionWasmSupport extends AbstractDependencyListener {
     private MethodDependency fieldTypeDep;
     private MethodDependency fieldGetDep;
     private MethodDependency fieldSetDep;
-
+    private MethodDependency constructorExceptionTypesDep;
+    private final Map<String, List<MethodReader>> methods = new LinkedHashMap<>();
+    private final Map<MethodReference, MethodDependency> classResults = new LinkedHashMap<>();
+    private MethodDependency invokeDep;
+    private final List<String> receivers = new ArrayList<>();
     @Override
     public void started(DependencyAgent agent) {
         characteristics = new Characteristics(agent.getClassSource());
@@ -108,7 +133,16 @@ public class ReflectionWasmSupport extends AbstractDependencyListener {
             }
             return;
         }
-        if (reachedFieldAccess(agent, method)) {
+        if (reachedFieldAccess(agent, method) || reachedMethodAccess(agent, method)) {
+            return;
+        }
+        if (method.getReference().equals(CONSTRUCTOR_EXCEPTION_TYPES)) {
+            constructorExceptionTypesDep = method;
+            method.getResult().propagate(agent.getType("[Ljava/lang/Class;"));
+            method.getResult().getArrayItem().propagate(agent.getType("java.lang.Class"));
+            for (List<MethodReader> declared : constructors.values()) {
+                propagateExceptionTypes(agent, method, declared);
+            }
             return;
         }
         if (!method.getReference().equals(DECLARED)) {
@@ -138,9 +172,15 @@ public class ReflectionWasmSupport extends AbstractDependencyListener {
                 for (ValueType parameter : ctor.getParameterTypes()) {
                     linkType(agent, parameter);
                 }
+                for (String exception : ctor.getExceptionTypes()) {
+                    linkType(agent, ValueType.object(exception));
+                }
             }
             if (parameterTypesDep != null) {
                 propagateParameterTypes(agent, declared);
+            }
+            if (constructorExceptionTypesDep != null) {
+                propagateExceptionTypes(agent, constructorExceptionTypesDep, declared);
             }
             if (newInstanceDep != null) {
                 linkInvocation(agent, name, declared);
@@ -160,13 +200,8 @@ public class ReflectionWasmSupport extends AbstractDependencyListener {
     private void propagateParameterTypes(DependencyAgent agent, List<MethodReader> declared) {
         for (MethodReader ctor : declared) {
             for (ValueType parameter : ctor.getParameterTypes()) {
-                if (parameter instanceof ValueType.Object) {
-                    parameterTypesDep.getResult().getArrayItem().getClassValueNode()
-                            .propagate(agent.getType(((ValueType.Object) parameter).getClassName()));
-                } else if (parameter instanceof ValueType.Array) {
-                    parameterTypesDep.getResult().getArrayItem().getClassValueNode()
-                            .propagate(agent.getType(parameter.toString()));
-                }
+                propagateClassValue(agent, parameterTypesDep.getResult().getArrayItem().getClassValueNode(),
+                        parameter);
             }
         }
     }
@@ -181,6 +216,7 @@ public class ReflectionWasmSupport extends AbstractDependencyListener {
             MethodDependency dep = agent.linkMethod(ctor.getReference());
             dep.getVariable(0).propagate(agent.getType(name));
             dep.use();
+            dep.getThrown().connect(newInstanceDep.getThrown());
             ValueType[] parameters = ctor.getParameterTypes();
             for (int i = 0; i < parameters.length; ++i) {
                 ValueType parameter = parameters[i];
@@ -219,6 +255,11 @@ public class ReflectionWasmSupport extends AbstractDependencyListener {
     }
 
     private static boolean parametersResolve(DependencyAgent agent, MethodReader method) {
+        for (String exception : method.getExceptionTypes()) {
+            if (agent.getClassSource().get(exception) == null) {
+                return false;
+            }
+        }
         for (ValueType parameter : method.getParameterTypes()) {
             while (parameter instanceof ValueType.Array) {
                 parameter = ((ValueType.Array) parameter).getItemType();
@@ -254,7 +295,284 @@ public class ReflectionWasmSupport extends AbstractDependencyListener {
                     }
                     pe.construct(owner.getName(), values).returnValue();
                 });
+        submit(agent, CONSTRUCTOR_EXCEPTION_TYPES, ValueType.arrayOf(CLASS), snapshot, cls -> true,
+                (pe, owner, ctor, args) -> classArray(pe, ctor.getExceptionTypes()).returnValue());
         completingFields(agent);
+        completingMethods(agent);
+    }
+
+    private static ValueEmitter classArray(ProgramEmitter pe, String[] classNames) {
+        ValueEmitter array = pe.constructArray(CLASS, classNames.length);
+        for (int i = 0; i < classNames.length; ++i) {
+            array.setElement(i, pe.constant(ValueType.object(classNames[i])));
+        }
+        return array;
+    }
+
+    private static void propagateExceptionTypes(DependencyAgent agent, MethodDependency target,
+            List<MethodReader> declared) {
+        for (MethodReader member : declared) {
+            for (String exception : member.getExceptionTypes()) {
+                target.getResult().getArrayItem().getClassValueNode().propagate(agent.getType(exception));
+            }
+        }
+    }
+
+    // --- java.lang.reflect.Method ------------------------------------------------------------------------
+
+    private boolean reachedMethodAccess(DependencyAgent agent, MethodDependency method) {
+        MethodReference ref = method.getReference();
+        if (ref.equals(METHOD_RETURN_TYPE)) {
+            method.getResult().propagate(agent.getType("java.lang.Class"));
+        } else if (ref.equals(METHOD_PARAMETER_TYPES) || ref.equals(METHOD_EXCEPTION_TYPES)) {
+            method.getResult().propagate(agent.getType("[Ljava/lang/Class;"));
+            method.getResult().getArrayItem().propagate(agent.getType("java.lang.Class"));
+        } else if (ref.equals(METHOD_NAME)) {
+            method.getResult().propagate(agent.getType("java.lang.String"));
+            return true;
+        } else if (ref.equals(METHOD_INVOKE)) {
+            invokeDep = method;
+            for (Map.Entry<String, List<MethodReader>> entry : methods.entrySet()) {
+                linkMethodInvocation(agent, entry.getKey(), entry.getValue());
+            }
+            // Instance methods dispatch on the receiver's runtime class, as invokevirtual does.
+            method.getVariable(3).addConsumer(type -> {
+                receivers.add(type.getName());
+                for (Map.Entry<String, List<MethodReader>> entry : methods.entrySet()) {
+                    for (MethodReader declared : entry.getValue()) {
+                        dispatch(agent, type.getName(), entry.getKey(), declared);
+                    }
+                }
+            });
+            return true;
+        } else if (ref.equals(METHODS_DECLARED)) {
+            method.getVariable(1).getClassValueNode().addConsumer(type -> recordMethods(agent, type.getName()));
+            return true;
+        } else {
+            return false;
+        }
+        classResults.put(ref, method);
+        for (List<MethodReader> declared : methods.values()) {
+            propagateMethodTypes(agent, ref, method, declared);
+        }
+        return true;
+    }
+
+    private void propagateMethodTypes(DependencyAgent agent, MethodReference ref, MethodDependency dep,
+            List<MethodReader> declared) {
+        for (MethodReader member : declared) {
+            if (ref.equals(METHOD_RETURN_TYPE)) {
+                propagateClassValue(agent, dep.getResult().getClassValueNode(), member.getResultType());
+            } else if (ref.equals(METHOD_PARAMETER_TYPES)) {
+                for (ValueType parameter : member.getParameterTypes()) {
+                    propagateClassValue(agent, dep.getResult().getArrayItem().getClassValueNode(), parameter);
+                }
+            } else {
+                for (String exception : member.getExceptionTypes()) {
+                    dep.getResult().getArrayItem().getClassValueNode().propagate(agent.getType(exception));
+                }
+            }
+        }
+    }
+
+    private static void propagateClassValue(DependencyAgent agent, org.teavm.dependency.DependencyNode node,
+            ValueType type) {
+        // The same class values the generated class constants carry (primitive and void classes are "~" + descriptor).
+        if (type instanceof ValueType.Object) {
+            node.propagate(agent.getType(((ValueType.Object) type).getClassName()));
+        } else if (type instanceof ValueType.Array) {
+            node.propagate(agent.getType(type.toString()));
+        } else {
+            node.propagate(agent.getType("~" + type));
+        }
+    }
+
+    // The member walks of Class.getMethods/getFields call getInterfaces() on every class they visit, including
+    // supertypes reached through getSuperclass(), whose Class values the analysis cannot see.
+    private static void requireInterfaces(DependencyAgent agent, String name) {
+        agent.linkMethod(GET_INTERFACES).getVariable(0).getClassValueNode().propagate(agent.getType(name));
+    }
+
+    // Class.getMethods/getMethod walk the superclass chain and superinterfaces, so they are recorded as well.
+    private void recordMethods(DependencyAgent agent, String name) {
+        if (name.startsWith("[") || name.startsWith("~") || methods.containsKey(name)
+                || !characteristics.isManaged(name)) {
+            return;
+        }
+        ClassReader cls = agent.getClassSource().get(name);
+        if (cls == null) {
+            return;
+        }
+        List<MethodReader> declared = new ArrayList<>();
+        for (MethodReader candidate : cls.getMethods()) {
+            if (!candidate.getName().equals("<init>") && !candidate.getName().equals("<clinit>")
+                    && characteristics.isManaged(candidate.getReference()) && parametersResolve(agent, candidate)
+                    && typeResolves(agent, candidate.getResultType())) {
+                declared.add(candidate);
+            }
+        }
+        methods.put(name, declared);
+        agent.linkClass(name);
+        requireInterfaces(agent, name);
+        for (MethodReader member : declared) {
+            linkType(agent, member.getResultType());
+            for (ValueType parameter : member.getParameterTypes()) {
+                linkType(agent, parameter);
+            }
+            for (String exception : member.getExceptionTypes()) {
+                linkType(agent, ValueType.object(exception));
+            }
+        }
+        for (Map.Entry<MethodReference, MethodDependency> entry : classResults.entrySet()) {
+            propagateMethodTypes(agent, entry.getKey(), entry.getValue(), declared);
+        }
+        if (invokeDep != null) {
+            linkMethodInvocation(agent, name, declared);
+            for (String receiver : new ArrayList<>(receivers)) {
+                for (MethodReader member : declared) {
+                    dispatch(agent, receiver, name, member);
+                }
+            }
+        }
+        if (cls.getParent() != null) {
+            recordMethods(agent, cls.getParent());
+        }
+        for (String iface : cls.getInterfaces()) {
+            recordMethods(agent, iface);
+        }
+    }
+
+    private void linkMethodInvocation(DependencyAgent agent, String owner, List<MethodReader> declared) {
+        CallLocation location = new CallLocation(METHOD_INVOKE);
+        for (MethodReader member : declared) {
+            if (member.hasModifier(ElementModifier.STATIC)) {
+                agent.linkClass(owner).initClass(location);
+            }
+            linkTarget(agent, member);
+            for (ValueType parameter : member.getParameterTypes()) {
+                if (parameter instanceof ValueType.Primitive) {
+                    MethodReference unboxing = unboxing((ValueType.Primitive) parameter);
+                    agent.linkClass(unboxing.getClassName());
+                    MethodDependency unbox = agent.linkMethod(unboxing);
+                    unbox.getVariable(0).propagate(agent.getType(unboxing.getClassName()));
+                    unbox.use();
+                }
+            }
+            ValueType result = member.getResultType();
+            if (result instanceof ValueType.Primitive) {
+                MethodReference boxing = boxing((ValueType.Primitive) result);
+                agent.linkClass(boxing.getClassName());
+                MethodDependency box = agent.linkMethod(boxing);
+                box.use();
+                box.getResult().connect(invokeDep.getResult());
+            }
+        }
+    }
+
+    // Links a method the generated invoker may end up executing, with its arguments and result flowing.
+    private MethodDependency linkTarget(DependencyAgent agent, MethodReader target) {
+        MethodDependency dep = agent.linkMethod(target.getReference());
+        dep.use();
+        ValueType[] parameters = target.getParameterTypes();
+        for (int i = 0; i < parameters.length; ++i) {
+            if (!(parameters[i] instanceof ValueType.Primitive)) {
+                invokeDep.getVariable(4).getArrayItem().connect(dep.getVariable(i + 1));
+            }
+        }
+        if (!(target.getResultType() instanceof ValueType.Primitive) && target.getResultType() != ValueType.VOID) {
+            dep.getResult().connect(invokeDep.getResult());
+        }
+        dep.getThrown().connect(invokeDep.getThrown());
+        return dep;
+    }
+
+    private void dispatch(DependencyAgent agent, String receiver, String owner, MethodReader declared) {
+        if (declared.hasModifier(ElementModifier.STATIC)) {
+            return;
+        }
+        MethodReader target;
+        if (declared.getLevel() == AccessLevel.PRIVATE || receiver.startsWith("[")) {
+            if (receiver.startsWith("[") && !owner.equals("java.lang.Object")) {
+                return;
+            }
+            target = declared;
+        } else {
+            if (!agent.getClassHierarchy().isSuperType(owner, receiver, false)) {
+                return;
+            }
+            target = agent.getClassHierarchy().resolve(receiver, declared.getDescriptor());
+            if (target == null || target.hasModifier(ElementModifier.ABSTRACT)) {
+                return;
+            }
+        }
+        if (!receiver.startsWith("[") && !agent.getClassHierarchy().isSuperType(owner, receiver, false)) {
+            return;
+        }
+        // As VirtualCallConsumer does for the generated call: the receiver node (with its class values and array
+        // items) flows into the target's this, filtered to the target's owner.
+        String targetOwner = target.getOwnerName();
+        invokeDep.getVariable(3).connect(linkTarget(agent, target).getVariable(0),
+                type -> agent.getClassHierarchy().isSuperType(targetOwner, type.getName(), false));
+    }
+
+    private void completingMethods(DependencyAgent agent) {
+        Map<String, List<MethodReader>> snapshot = new LinkedHashMap<>(methods);
+        submitCount(agent, METHOD_COUNT, snapshot);
+        submit(agent, METHOD_MODIFIERS, ValueType.INTEGER, snapshot, cls -> true, (pe, owner, member, args) ->
+                pe.constant(methodModifiers(member)).returnValue());
+        submit(agent, METHOD_NAME, ValueType.object("java.lang.String"), snapshot, cls -> true,
+                (pe, owner, member, args) -> pe.constant(member.getName()).returnValue());
+        submit(agent, METHOD_RETURN_TYPE, CLASS, snapshot, cls -> true, (pe, owner, member, args) ->
+                pe.constant(member.getResultType()).returnValue());
+        submit(agent, METHOD_PARAMETER_TYPES, ValueType.arrayOf(CLASS), snapshot, cls -> true,
+                (pe, owner, member, args) -> {
+                    ValueType[] parameters = member.getParameterTypes();
+                    ValueEmitter array = pe.constructArray(CLASS, parameters.length);
+                    for (int i = 0; i < parameters.length; ++i) {
+                        array.setElement(i, pe.constant(parameters[i]));
+                    }
+                    array.returnValue();
+                });
+        submit(agent, METHOD_EXCEPTION_TYPES, ValueType.arrayOf(CLASS), snapshot, cls -> true,
+                (pe, owner, member, args) -> classArray(pe, member.getExceptionTypes()).returnValue());
+        submit(agent, METHOD_INVOKE, OBJECT, snapshot, cls -> true, (pe, owner, member, args) -> {
+            ValueType[] parameters = member.getParameterTypes();
+            ValueEmitter[] values = new ValueEmitter[parameters.length];
+            for (int i = 0; i < parameters.length; ++i) {
+                values[i] = unbox(args[1].getElement(i), parameters[i]);
+            }
+            ValueEmitter result;
+            if (member.hasModifier(ElementModifier.STATIC)) {
+                pe.initClass(owner.getName());
+                result = pe.invoke(member.getReference(), values);
+            } else {
+                ValueEmitter receiver = args[0].cast(ValueType.object(owner.getName()));
+                result = member.getLevel() == AccessLevel.PRIVATE
+                        ? receiver.invokeSpecial(member.getReference(), values)
+                        : receiver.invokeVirtual(member.getReference(), values);
+            }
+            if (member.getResultType() == ValueType.VOID) {
+                pe.constantNull(OBJECT).returnValue();
+            } else if (member.getResultType() instanceof ValueType.Primitive) {
+                pe.invoke(boxing((ValueType.Primitive) member.getResultType()), result).returnValue();
+            } else {
+                result.returnValue();
+            }
+        });
+    }
+
+    private static int methodModifiers(MethodReader method) {
+        int result = access(method.getLevel());
+        int[] bits = { 0x8, 0x10, 0x20, 0x40, 0x80, 0x100, 0x400, 0x800, 0x1000 };
+        ElementModifier[] modifiers = { ElementModifier.STATIC, ElementModifier.FINAL, ElementModifier.SYNCHRONIZED,
+                ElementModifier.BRIDGE, ElementModifier.VARARGS, ElementModifier.NATIVE, ElementModifier.ABSTRACT,
+                ElementModifier.STRICT, ElementModifier.SYNTHETIC };
+        for (int i = 0; i < bits.length; ++i) {
+            if (method.hasModifier(modifiers[i])) {
+                result |= bits[i];
+            }
+        }
+        return result;
     }
 
     private interface MemberEmitter<T> {
@@ -360,8 +678,16 @@ public class ReflectionWasmSupport extends AbstractDependencyListener {
         }
         fields.put(name, declared);
         agent.linkClass(name);
+        requireInterfaces(agent, name);
         for (FieldReader field : declared) {
             linkType(agent, field.getType());
+        }
+        // Class.getFields/getField walk the superclass chain and superinterfaces.
+        if (cls.getParent() != null) {
+            recordFields(agent, cls.getParent());
+        }
+        for (String iface : cls.getInterfaces()) {
+            recordFields(agent, iface);
         }
         if (fieldTypeDep != null) {
             propagateFieldTypes(agent, declared);
@@ -384,13 +710,7 @@ public class ReflectionWasmSupport extends AbstractDependencyListener {
 
     private void propagateFieldTypes(DependencyAgent agent, List<FieldReader> declared) {
         for (FieldReader field : declared) {
-            ValueType type = field.getType();
-            if (type instanceof ValueType.Object) {
-                fieldTypeDep.getResult().getClassValueNode()
-                        .propagate(agent.getType(((ValueType.Object) type).getClassName()));
-            } else if (type instanceof ValueType.Array) {
-                fieldTypeDep.getResult().getClassValueNode().propagate(agent.getType(type.toString()));
-            }
+            propagateClassValue(agent, fieldTypeDep.getResult().getClassValueNode(), field.getType());
         }
     }
 

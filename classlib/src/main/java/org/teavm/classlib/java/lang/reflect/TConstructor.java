@@ -73,6 +73,15 @@ public class TConstructor<T> extends TAccessibleObject implements TMember {
 
     private static native Object wasmNewInstance(TClass<?> declaringClass, int index, Object[] arguments);
 
+    private static native TClass<?>[] wasmConstructorExceptionTypes(TClass<?> declaringClass, int index);
+
+    public TClass<?>[] getExceptionTypes() {
+        if (wasmIndex >= 0) {
+            return wasmConstructorExceptionTypes(declaringClass, wasmIndex);
+        }
+        return new TClass<?>[0];
+    }
+
     public TConstructor(TClass<T> declaringClass, String name, int modifiers, int accessLevel,
             TClass<?>[] parameterTypes, JSCallable callable) {
         this.declaringClass = declaringClass;
@@ -132,24 +141,15 @@ public class TConstructor<T> extends TAccessibleObject implements TMember {
         return parameterTypes.length;
     }
 
+    // JDK Constructor.toString: access modifiers, the declaring class's type name, parameter types and throws clause.
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
-        sb.append(TModifier.toString(getModifiers()));
-        if (sb.length() > 0) {
-            sb.append(' ');
-        }
-        sb.append(declaringClass.getName().toString()).append('(');
-        TClass<?>[] parameterTypes = getParameterTypes();
-        for (int i = 0; i < parameterTypes.length; ++i) {
-            if (i > 0) {
-                sb.append(',');
-            }
-            sb.append(parameterTypes[i].getName());
-        }
-        return sb.append(')').toString();
+        TModifier.appendModifiers(sb, getModifiers() & TModifier.constructorModifiers(), false);
+        sb.append(declaringClass.getTypeName());
+        TModifier.appendSignature(sb, parameterTypes, getExceptionTypes());
+        return sb.toString();
     }
-
     @SuppressWarnings("unchecked")
     public T newInstance(Object... initargs) throws TInstantiationException, TIllegalAccessException,
             TIllegalArgumentException, TInvocationTargetException {
@@ -207,7 +207,7 @@ public class TConstructor<T> extends TAccessibleObject implements TMember {
     }
 
     // Method invocation conversion (JLS 5.3): identity, unboxing and widening primitive conversion.
-    private static Object convertArgument(TClass<?> type, Object arg) {
+    static Object convertArgument(TClass<?> type, Object arg) {
         if (!type.isPrimitive()) {
             if (arg != null && !type.isInstance((TObject) arg)) {
                 throw new TIllegalArgumentException("argument type mismatch");

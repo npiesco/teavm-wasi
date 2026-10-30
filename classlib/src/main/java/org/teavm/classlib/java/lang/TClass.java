@@ -21,9 +21,9 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 import org.teavm.backend.javascript.spi.GeneratedBy;
 import org.teavm.backend.javascript.spi.InjectedBy;
@@ -270,6 +270,20 @@ public class TClass<T> extends TObject implements TAnnotatedElement, TType {
         Address.ofObject(this).<RuntimeClass>toStructure().canonicalName = object;
     }
 
+    // JDK Class.getTypeName: arrays read as their component type name followed by "[]" per dimension.
+    public String getTypeName() {
+        if (isArray()) {
+            TClass<?> component = this;
+            StringBuilder dimensions = new StringBuilder();
+            while (component.isArray()) {
+                dimensions.append("[]");
+                component = component.getComponentType();
+            }
+            return component.getName() + dimensions;
+        }
+        return getName();
+    }
+
     public boolean isPrimitive() {
         return Platform.isPrimitive(platformClass);
     }
@@ -493,7 +507,12 @@ public class TClass<T> extends TObject implements TAnnotatedElement, TType {
     }
 
     private String constructorToString(TClass<?>[] parameterTypes) {
-        StringBuilder sb = new StringBuilder(getName()).append(".<init>(");
+        return methodToString("<init>", parameterTypes);
+    }
+
+    // JDK Class.methodToString, used in NoSuchMethodException messages.
+    private String methodToString(String name, TClass<?>[] parameterTypes) {
+        StringBuilder sb = new StringBuilder(getName()).append('.').append(name).append('(');
         if (parameterTypes != null) {
             for (int i = 0; i < parameterTypes.length; ++i) {
                 if (i > 0) {
@@ -535,6 +554,9 @@ public class TClass<T> extends TObject implements TAnnotatedElement, TType {
         if (isPrimitive() || isArray()) {
             return new TMethod[0];
         }
+        if (PlatformDetector.isWebAssembly()) {
+            return TMethod.wasmDeclaredMethods(this);
+        }
         if (declaredMethods == null) {
             initReflection();
             JSClass jsClass = (JSClass) getPlatformClass().getMetadata();
@@ -560,114 +582,164 @@ public class TClass<T> extends TObject implements TAnnotatedElement, TType {
         return declaredMethods.clone();
     }
 
+    // JDK Class.searchMethods: among declared methods with this signature, the one with the most specific
+    // return type (several exist only when the compiler emitted bridges).
     public TMethod getDeclaredMethod(String name, TClass<?>... parameterTypes) throws TNoSuchMethodException,
             TSecurityException {
-        TMethod bestFit = null;
+        TMethod result = null;
         for (TMethod method : getDeclaredMethods()) {
-            if (method.getName().equals(name) && Arrays.equals(method.getParameterTypes(), parameterTypes)) {
-                if (bestFit == null || bestFit.getReturnType().isAssignableFrom(method.getReturnType())) {
-                    bestFit = method;
-                }
+            if (method.getName().equals(name) && sameParameters(method, parameterTypes)
+                    && (result == null || (result.getReturnType() != method.getReturnType()
+                    && result.getReturnType().isAssignableFrom(method.getReturnType())))) {
+                result = method;
             }
         }
-        if (bestFit == null) {
-            throw new TNoSuchMethodException();
+        if (result == null) {
+            throw new TNoSuchMethodException(methodToString(name, parameterTypes));
         }
-        return bestFit;
+        return result;
     }
 
-    public TMethod[] getMethods() throws TSecurityException {
-        Map<MethodSignature, TMethod> methods = new HashMap<>();
-        findMethods(this, methods);
-        return methods.values().toArray(new TMethod[methods.size()]);
-    }
-
-    public TMethod getMethod(String name, TClass<?>... parameterTypes) throws TNoSuchMethodException,
-            TSecurityException {
-        TMethod method = findMethod(this, null, name, parameterTypes);
-        if (method == null) {
-            throw new TNoSuchMethodException();
+    private static boolean sameParameters(TMethod method, TClass<?>[] parameterTypes) {
+        TClass<?>[] actual = method.getParameterTypes();
+        int expected = parameterTypes == null ? 0 : parameterTypes.length;
+        if (actual.length != expected) {
+            return false;
         }
-        return method;
-    }
-
-    private static void findMethods(TClass<?> cls, Map<MethodSignature, TMethod> methods) {
-        for (TMethod method : cls.getDeclaredMethods()) {
-            if (TModifier.isPublic(method.getModifiers())) {
-                MethodSignature signature = new MethodSignature(method.getName(), method.getParameterTypes(),
-                        method.getReturnType());
-                if (!methods.containsKey(signature)) {
-                    methods.put(signature, method);
-                }
-            }
-        }
-
-        if (!cls.isInterface()) {
-            TClass<?> superclass = cls.getSuperclass();
-            if (superclass != null) {
-                findMethods(superclass, methods);
-            }
-        }
-
-        for (TClass<?> iface : cls.getInterfaces()) {
-            findMethods(iface, methods);
-        }
-    }
-
-    private static TMethod findMethod(TClass<?> cls, TMethod current, String name, TClass<?>[] parameterTypes) {
-        for (TMethod method : cls.getDeclaredMethods()) {
-            if (TModifier.isPublic(method.getModifiers()) && method.getName().equals(name)
-                    && Arrays.equals(method.getParameterTypes(), parameterTypes)) {
-                if (current == null || current.getReturnType().isAssignableFrom(method.getReturnType())) {
-                    current = method;
-                }
-            }
-        }
-
-        if (!cls.isInterface()) {
-            TClass<?> superclass = cls.getSuperclass();
-            if (superclass != null) {
-                current = findMethod(superclass, current, name, parameterTypes);
-            }
-        }
-
-        for (TClass<?> iface : cls.getInterfaces()) {
-            current = findMethod(iface, current, name, parameterTypes);
-        }
-
-        return current;
-    }
-
-    private static final class MethodSignature {
-        private final String name;
-        private final TClass<?>[] parameterTypes;
-        private final TClass<?> returnType;
-
-        MethodSignature(String name, TClass<?>[] parameterTypes, TClass<?> returnType) {
-            this.name = name;
-            this.parameterTypes = parameterTypes;
-            this.returnType = returnType;
-        }
-
-        @Override
-        public boolean equals(Object o) {
-            if (this == o) {
-                return true;
-            }
-            if (!(o instanceof MethodSignature)) {
+        for (int i = 0; i < expected; ++i) {
+            if (actual[i] != parameterTypes[i]) {
                 return false;
             }
-            MethodSignature that = (MethodSignature) o;
-            return Objects.equals(name, that.name) && Arrays.equals(parameterTypes, that.parameterTypes)
-                    && Objects.equals(returnType, that.returnType);
         }
-
-        @Override
-        public int hashCode() {
-            return Objects.hash(name, Arrays.hashCode(parameterTypes), returnType);
-        }
+        return true;
     }
 
+    // JDK Class.privateGetPublicMethods: public declared methods, then the superclass's public methods, then the
+    // non-static public methods of direct superinterfaces, merged per PublicMethods.MethodList.merge.
+    public TMethod[] getMethods() throws TSecurityException {
+        List<TMethod> result = new ArrayList<>();
+        for (List<TMethod> methods : publicMethods().values()) {
+            result.addAll(methods);
+        }
+        return result.toArray(new TMethod[result.size()]);
+    }
+
+    private Map<String, List<TMethod>> publicMethods() {
+        Map<String, List<TMethod>> methods = new LinkedHashMap<>();
+        for (TMethod method : getDeclaredMethods()) {
+            if (TModifier.isPublic(method.getModifiers())) {
+                mergeInto(methods, method);
+            }
+        }
+        TClass<?> superclass = getSuperclass();
+        if (superclass != null) {
+            for (List<TMethod> inherited : superclass.publicMethods().values()) {
+                for (TMethod method : inherited) {
+                    mergeInto(methods, method);
+                }
+            }
+        }
+        for (TClass<?> iface : getInterfaces()) {
+            for (List<TMethod> inherited : iface.publicMethods().values()) {
+                for (TMethod method : inherited) {
+                    if (!TModifier.isStatic(method.getModifiers())) {
+                        mergeInto(methods, method);
+                    }
+                }
+            }
+        }
+        return methods;
+    }
+
+    private static void mergeInto(Map<String, List<TMethod>> methods, TMethod method) {
+        StringBuilder key = new StringBuilder(method.getName()).append('(');
+        for (TClass<?> parameter : method.getParameterTypes()) {
+            key.append(parameter.getName()).append(',');
+        }
+        methods.computeIfAbsent(key.toString(), k -> new ArrayList<>());
+        merge(methods.get(key.toString()), method);
+    }
+
+    // JDK PublicMethods.MethodList.merge for methods with the same name and parameter types: of two methods with
+    // the same return type, the one declared by the more specific type wins, and class methods win over interface
+    // methods.
+    private static List<TMethod> merge(List<TMethod> list, TMethod method) {
+        if (list == null) {
+            list = new ArrayList<>();
+        }
+        TClass<?> declaring = method.getDeclaringClass();
+        for (int i = 0; i < list.size(); ++i) {
+            TMethod existing = list.get(i);
+            if (existing.getReturnType() != method.getReturnType()) {
+                continue;
+            }
+            TClass<?> existingDeclaring = existing.getDeclaringClass();
+            if (declaring.isInterface() == existingDeclaring.isInterface()) {
+                if (declaring.isAssignableFrom(existingDeclaring)) {
+                    return list;
+                }
+                if (existingDeclaring.isAssignableFrom(declaring)) {
+                    list.set(i, method);
+                    return list;
+                }
+            } else if (declaring.isInterface()) {
+                return list;
+            } else {
+                list.set(i, method);
+                return list;
+            }
+        }
+        list.add(method);
+        return list;
+    }
+
+    // JDK Class.getMethod: getMethodsRecursive, then the candidate with the most specific return type.
+    public TMethod getMethod(String name, TClass<?>... parameterTypes) throws TNoSuchMethodException,
+            TSecurityException {
+        List<TMethod> candidates = getMethodsRecursive(name, parameterTypes, true);
+        if (candidates == null) {
+            throw new TNoSuchMethodException(methodToString(name, parameterTypes));
+        }
+        TMethod result = candidates.get(0);
+        for (int i = 1; i < candidates.size(); ++i) {
+            TMethod candidate = candidates.get(i);
+            if (candidate.getReturnType() != result.getReturnType()
+                    && result.getReturnType().isAssignableFrom(candidate.getReturnType())) {
+                result = candidate;
+            }
+        }
+        return result;
+    }
+
+    private List<TMethod> getMethodsRecursive(String name, TClass<?>[] parameterTypes, boolean includeStatic) {
+        List<TMethod> result = null;
+        for (TMethod method : getDeclaredMethods()) {
+            if (TModifier.isPublic(method.getModifiers()) && method.getName().equals(name)
+                    && sameParameters(method, parameterTypes)
+                    && (includeStatic || !TModifier.isStatic(method.getModifiers()))) {
+                if (result == null) {
+                    result = new ArrayList<>();
+                }
+                result.add(method);
+            }
+        }
+        if (result != null) {
+            return result;
+        }
+        TClass<?> superclass = getSuperclass();
+        if (superclass != null) {
+            result = superclass.getMethodsRecursive(name, parameterTypes, includeStatic);
+        }
+        for (TClass<?> iface : getInterfaces()) {
+            List<TMethod> inherited = iface.getMethodsRecursive(name, parameterTypes, false);
+            if (inherited != null) {
+                for (TMethod method : inherited) {
+                    result = merge(result, method);
+                }
+            }
+        }
+        return result;
+    }
     public int getModifiers() {
         int flags = platformClass.getMetadata().getFlags();
         int accessLevel = platformClass.getMetadata().getAccessLevel();

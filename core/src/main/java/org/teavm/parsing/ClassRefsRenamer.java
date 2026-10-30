@@ -138,6 +138,11 @@ public class ClassRefsRenamer extends AbstractInstructionVisitor {
         }
 
         renamedMethod.setTypeParameters(rename(method.getTypeParameters()));
+        String[] exceptionTypes = method.getExceptionTypes();
+        for (int i = 0; i < exceptionTypes.length; ++i) {
+            exceptionTypes[i] = classNameMapper.apply(exceptionTypes[i]);
+        }
+        renamedMethod.setExceptionTypes(exceptionTypes);
         GenericValueType genericResultType = method.getGenericResultType();
         if (genericResultType != null) {
             genericResultType = rename(method.getGenericResultType());

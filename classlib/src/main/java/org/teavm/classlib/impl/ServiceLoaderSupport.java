@@ -138,7 +138,8 @@ public class ServiceLoaderSupport extends AbstractDependencyListener implements 
             throw new RuntimeException(e);
         }
         Set<String> reached = new HashSet<>(agent.getReachableClasses());
-        for (String service : classpathProviders.keySet()) {
+        // Linking a provider can reach further service types (classReached), which also removes entries.
+        for (String service : new ArrayList<>(classpathProviders.keySet())) {
             if (reached.contains(service)) {
                 linkProvidersOf(agent, service);
             }
@@ -163,6 +164,7 @@ public class ServiceLoaderSupport extends AbstractDependencyListener implements 
             }
         }
     }
+
     private Set<String> getImplementations(String type) {
         Set<String> result = new LinkedHashSet<>();
         try {

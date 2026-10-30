@@ -192,6 +192,12 @@ public class ClassIO {
             annotationIO.writeAnnotations(output, parameterAnnotation);
         }
 
+        String[] exceptionTypes = method.getExceptionTypes();
+        output.writeUnsigned(exceptionTypes.length);
+        for (String exceptionType : exceptionTypes) {
+            output.writeUnsigned(symbolTable.lookup(exceptionType));
+        }
+
         if (method.getAnnotationDefault() != null) {
             output.writeUnsigned(1);
             annotationIO.writeAnnotationValue(output, method.getAnnotationDefault());
@@ -224,6 +230,11 @@ public class ClassIO {
         method.parameterAnnotations = new CachedAnnotations[descriptor.parameterCount()];
         for (int i = 0; i < method.parameterCount(); ++i) {
             method.parameterAnnotations[i] = annotationIO.readAnnotations(input);
+        }
+
+        method.exceptionTypes = new String[input.readUnsigned()];
+        for (int i = 0; i < method.exceptionTypes.length; ++i) {
+            method.exceptionTypes[i] = referenceCache.getCached(symbolTable.at(input.readUnsigned()));
         }
 
         if (input.readUnsigned() != 0) {

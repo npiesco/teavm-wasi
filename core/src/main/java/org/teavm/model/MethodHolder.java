@@ -29,6 +29,7 @@ public class MethodHolder extends MemberHolder implements MethodReader {
     private AnnotationValue annotationDefault;
     private AnnotationContainer[] parameterAnnotations;
     private MethodReference reference;
+    private String[] exceptionTypes = new String[0];
 
     public MethodHolder(MethodDescriptor descriptor) {
         super(descriptor.getName());
@@ -170,6 +171,15 @@ public class MethodHolder extends MemberHolder implements MethodReader {
     public void setProgramSupplier(Function<MethodHolder, Program> programSupplier) {
         this.program = null;
         this.programSupplier = programSupplier;
+    }
+
+    @Override
+    public String[] getExceptionTypes() {
+        return exceptionTypes.clone();
+    }
+
+    public void setExceptionTypes(String[] exceptionTypes) {
+        this.exceptionTypes = exceptionTypes.clone();
     }
 
     @Override

@@ -81,6 +81,11 @@ public class Parser {
         MethodHolder method = new MethodHolder(referenceCache.getCached(new MethodDescriptor(node.name, signature)));
         parseModifiers(node.access, method, DECL_METHOD);
         parseAnnotations(method.getAnnotations(), node.visibleAnnotations, node.invisibleAnnotations);
+        String[] exceptionTypes = new String[node.exceptions.size()];
+        for (int i = 0; i < exceptionTypes.length; ++i) {
+            exceptionTypes[i] = referenceCache.getCached(node.exceptions.get(i).replace('/', '.'));
+        }
+        method.setExceptionTypes(exceptionTypes);
 
         if (node.instructions.size() > 0) {
             ProgramParser programParser = new ProgramParser(referenceCache);

@@ -34,6 +34,7 @@ class CachedMethod extends CachedMember implements MethodReader {
     GenericValueType[] genericParameterTypes;
     CachedAnnotations[] parameterAnnotations;
     AnnotationValue annotationDefault;
+    String[] exceptionTypes;
     WeakReference<ProgramReader> program;
     Supplier<ProgramReader> programSupplier;
 
@@ -113,6 +114,11 @@ class CachedMethod extends CachedMember implements MethodReader {
             this.program = new WeakReference<>(program);
         }
         return program;
+    }
+
+    @Override
+    public String[] getExceptionTypes() {
+        return exceptionTypes.clone();
     }
 
     @Override

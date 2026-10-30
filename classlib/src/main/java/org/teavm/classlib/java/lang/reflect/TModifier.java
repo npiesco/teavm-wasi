@@ -15,6 +15,8 @@
  */
 package org.teavm.classlib.java.lang.reflect;
 
+import org.teavm.classlib.java.lang.TClass;
+
 public class TModifier {
     private static String[] modifierNames;
     public static final int PUBLIC = 1;
@@ -33,6 +35,65 @@ public class TModifier {
             VOLATILE, SYNCHRONIZED, NATIVE, STRICT, INTERFACE };
 
     private TModifier() {
+    }
+
+    private static final int ACCESS_MODIFIERS = PUBLIC | PROTECTED | PRIVATE;
+
+    public static int classModifiers() {
+        return PUBLIC | PROTECTED | PRIVATE | ABSTRACT | STATIC | FINAL | STRICT;
+    }
+
+    public static int interfaceModifiers() {
+        return PUBLIC | PROTECTED | PRIVATE | ABSTRACT | STATIC | STRICT;
+    }
+
+    public static int constructorModifiers() {
+        return ACCESS_MODIFIERS;
+    }
+
+    public static int methodModifiers() {
+        return ACCESS_MODIFIERS | ABSTRACT | STATIC | FINAL | SYNCHRONIZED | NATIVE | STRICT;
+    }
+
+    public static int fieldModifiers() {
+        return ACCESS_MODIFIERS | STATIC | FINAL | TRANSIENT | VOLATILE;
+    }
+
+    public static int parameterModifiers() {
+        return FINAL;
+    }
+
+    // Executable.sharedToString: modifiers followed by a space, with "default" after the access modifier.
+    static void appendModifiers(StringBuilder sb, int mod, boolean isDefault) {
+        if (mod != 0 && !isDefault) {
+            sb.append(toString(mod)).append(' ');
+            return;
+        }
+        int access = mod & ACCESS_MODIFIERS;
+        if (access != 0) {
+            sb.append(toString(access)).append(' ');
+        }
+        if (isDefault) {
+            sb.append("default ");
+        }
+        mod &= ~ACCESS_MODIFIERS;
+        if (mod != 0) {
+            sb.append(toString(mod)).append(' ');
+        }
+    }
+
+    static void appendSignature(StringBuilder sb, TClass<?>[] parameterTypes, TClass<?>[] exceptionTypes) {
+        sb.append('(');
+        for (int i = 0; i < parameterTypes.length; ++i) {
+            if (i > 0) {
+                sb.append(',');
+            }
+            sb.append(parameterTypes[i].getTypeName());
+        }
+        sb.append(')');
+        for (int i = 0; i < exceptionTypes.length; ++i) {
+            sb.append(i == 0 ? " throws " : ",").append(exceptionTypes[i].getTypeName());
+        }
     }
 
     public static boolean isPublic(int mod) {

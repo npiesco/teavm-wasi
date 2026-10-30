@@ -26,6 +26,11 @@ public interface MethodReader extends MemberReader {
 
     ValueType[] getSignature();
 
+    /**
+     * Class names from the method's {@code throws} clause (the class file's Exceptions attribute), in order.
+     */
+    String[] getExceptionTypes();
+
     ValueType parameterType(int index);
 
     int genericParameterCount();
