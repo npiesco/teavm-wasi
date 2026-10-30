@@ -73,6 +73,18 @@ public class TConstructor<T> extends TAccessibleObject implements TMember {
 
     private static native Object wasmNewInstance(TClass<?> declaringClass, int index, Object[] arguments);
 
+    private static native Object wasmNewDefaultInstance(TClass<?> declaringClass, int index);
+
+    // Class.newInstance on WebAssembly: this no-arg constructor runs and whatever it throws propagates as is.
+    @SuppressWarnings("unchecked")
+    public T newDefaultInstance() throws TInstantiationException {
+        if ((modifiers & (WASM_CLASS_ABSTRACT | WASM_CLASS_ENUM)) != 0) {
+            // As Constructor.newInstance on the JDK: no message.
+            throw new TInstantiationException();
+        }
+        return (T) wasmNewDefaultInstance(declaringClass, wasmIndex);
+    }
+
     private static native TClass<?>[] wasmConstructorExceptionTypes(TClass<?> declaringClass, int index);
 
     public TClass<?>[] getExceptionTypes() {

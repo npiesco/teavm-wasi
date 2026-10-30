@@ -36,7 +36,6 @@ import org.teavm.classlib.java.lang.annotation.TAnnotation;
 import org.teavm.classlib.java.lang.reflect.TAnnotatedElement;
 import org.teavm.classlib.java.lang.reflect.TConstructor;
 import org.teavm.classlib.java.lang.reflect.TField;
-import org.teavm.classlib.java.lang.reflect.TInvocationTargetException;
 import org.teavm.classlib.java.lang.reflect.TMethod;
 import org.teavm.classlib.java.lang.reflect.TModifier;
 import org.teavm.classlib.java.lang.reflect.TType;
@@ -917,16 +916,7 @@ public class TClass<T> extends TObject implements TAnnotatedElement, TType {
             failure.initCause(e);
             throw failure;
         }
-        try {
-            return constructor.newInstance();
-        } catch (TInvocationTargetException e) {
-            throw TClass.<RuntimeException>rethrow(e.getTargetException());
-        }
-    }
-
-    @SuppressWarnings("unchecked")
-    private static <E extends Throwable> E rethrow(Object throwable) throws E {
-        throw (E) throwable;
+        return constructor.newDefaultInstance();
     }
 
     public TClass<?> getDeclaringClass() {

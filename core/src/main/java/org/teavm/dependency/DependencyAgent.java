@@ -37,6 +37,14 @@ public class DependencyAgent implements DependencyInfo, ServiceRepository {
         return analyzer.getType(name);
     }
 
+    /**
+     * The analyzer's cached filter admitting the given class (or array descriptor) and its subtypes, i.e. the
+     * values a JVM checkcast to that type would let through.
+     */
+    public DependencyTypeFilter getSuperClassFilter(String superClass) {
+        return analyzer.getSuperClassFilter(superClass);
+    }
+
     public String generateClassName() {
         return analyzer.generateClassName();
     }
@@ -51,6 +59,16 @@ public class DependencyAgent implements DependencyInfo, ServiceRepository {
 
     public void submitMethod(MethodReference method, Program program) {
         analyzer.submitMethod(method, program);
+    }
+
+    /**
+     * Like {@link #submitMethod}, for a generated body whose data flow was already declared during analysis: the
+     * body is installed without being analyzed, its non-parameter variables (all of them if
+     * {@code shareParameters}) sharing {@code summaryNode}.
+     */
+    public void submitMethodWithDeclaredFlows(MethodReference method, Program program, DependencyNode summaryNode,
+            boolean shareParameters) {
+        analyzer.submitMethodWithDeclaredFlows(method, program, summaryNode, shareParameters);
     }
 
     public MethodDependency linkMethod(MethodReference methodRef) {

@@ -276,6 +276,35 @@ public abstract class DependencyAnalyzer implements DependencyInfo {
         }
     }
 
+    /**
+     * Installs a generated body for a reached native method whose data flow the caller has already declared on the
+     * method's nodes (linked callees, result, thrown exceptions, class initialization), so the body is not analyzed
+     * again. Parameters keep their nodes unless {@code shareParameters}; every other variable shares
+     * {@code summaryNode}, which must carry every type such a variable can hold (devirtualization reads the
+     * receivers of virtual calls and casts from it).
+     */
+    void submitMethodWithDeclaredFlows(MethodReference methodRef, Program program, DependencyNode summaryNode,
+            boolean shareParameters) {
+        MethodDependency dep = getMethod(methodRef);
+        if (dep == null) {
+            throw new IllegalArgumentException("Method was not reached: " + methodRef);
+        }
+        MethodHolder method = dep.method;
+        if (!method.hasModifier(ElementModifier.NATIVE)) {
+            throw new IllegalArgumentException("Method is not native: " + methodRef);
+        }
+        method.getModifiers().remove(ElementModifier.NATIVE);
+        method.setProgram(ProgramUtils.copy(program));
+        new UnreachableBasicBlockEliminator().optimize(method.getProgram());
+        DependencyNode[] parameters = dep.getVariables();
+        DependencyNode[] variables = new DependencyNode[method.getProgram().variableCount()];
+        for (int i = 0; i < variables.length; ++i) {
+            variables[i] = !shareParameters && i < parameters.length && parameters[i] != null
+                    ? parameters[i] : summaryNode;
+        }
+        dep.setVariables(variables);
+    }
+
     protected abstract void processMethod(MethodDependency methodDep);
 
     public void addDependencyListener(DependencyListener listener) {
