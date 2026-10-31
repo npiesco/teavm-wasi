@@ -19,11 +19,18 @@ public class TIllegalFormatFlagsException extends TIllegalFormatException {
     private String flags;
 
     public TIllegalFormatFlagsException(String flags) {
-        super("Illegal format flags: " + flags);
+        if (flags == null) {
+            throw new NullPointerException();
+        }
         this.flags = flags;
     }
 
     public String getFlags() {
         return flags;
+    }
+
+    @Override
+    public String getMessage() {
+        return "Flags = '" + flags + "'";
     }
 }

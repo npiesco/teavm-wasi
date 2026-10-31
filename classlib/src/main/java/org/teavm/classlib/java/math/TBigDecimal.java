@@ -15,7 +15,6 @@
  */
 package org.teavm.classlib.java.math;
 
-import java.io.Serializable;
 
 /**
  * This class represents immutable arbitrary precision decimal numbers. Each
@@ -23,7 +22,7 @@ import java.io.Serializable;
  * precision mantissa (the unscaled value) and a scale. The value of the {@code
  * BigDecimal} is {@code unscaledValue} 10^(-{@code scale}).
  */
-public class TBigDecimal extends Number implements Comparable<TBigDecimal>, Serializable {
+public class TBigDecimal extends Number implements Comparable<TBigDecimal> {
 
     /**
      * The constant zero as a {@code BigDecimal}.

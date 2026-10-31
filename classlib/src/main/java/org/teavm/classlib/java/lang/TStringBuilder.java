@@ -15,7 +15,10 @@
  */
 package org.teavm.classlib.java.lang;
 
-public class TStringBuilder extends TAbstractStringBuilder implements TAppendable {
+import org.teavm.classlib.java.io.TSerializable;
+
+public class TStringBuilder extends TAbstractStringBuilder
+        implements TAppendable, TSerializable, TComparable<TStringBuilder>, TCharSequence {
     public TStringBuilder(int capacity) {
         super(capacity);
     }
@@ -215,5 +218,21 @@ public class TStringBuilder extends TAbstractStringBuilder implements TAppendabl
     public TStringBuilder reverse() {
         super.reverse();
         return this;
+    }
+
+    // As the JDK: the first differing char decides, else the shorter sequence is less.
+    @Override
+    public int compareTo(TStringBuilder another) {
+        int length = length();
+        int otherLength = another.length();
+        int common = Math.min(length, otherLength);
+        for (int i = 0; i < common; ++i) {
+            char a = charAt(i);
+            char b = another.charAt(i);
+            if (a != b) {
+                return a - b;
+            }
+        }
+        return length - otherLength;
     }
 }

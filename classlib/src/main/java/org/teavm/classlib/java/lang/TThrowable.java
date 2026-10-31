@@ -18,6 +18,7 @@ package org.teavm.classlib.java.lang;
 import java.io.PrintStream;
 import java.io.PrintWriter;
 import org.teavm.classlib.PlatformDetector;
+import org.teavm.classlib.java.io.TSerializable;
 import org.teavm.classlib.java.util.TArrays;
 import org.teavm.interop.Remove;
 import org.teavm.interop.Rename;
@@ -25,7 +26,7 @@ import org.teavm.interop.Superclass;
 import org.teavm.runtime.ExceptionHandling;
 
 @Superclass("java.lang.Object")
-public class TThrowable extends RuntimeException {
+public class TThrowable extends RuntimeException implements TSerializable {
     private static final long serialVersionUID = 2026791432677149320L;
     private String message;
     private TThrowable cause;
@@ -92,11 +93,13 @@ public class TThrowable extends RuntimeException {
     public TThrowable(TThrowable cause) {
     }
 
+    // JDK: the detail message of a throwable constructed from a cause alone is the cause's toString().
     @Rename("<init>")
     private void init(TThrowable cause) {
         this.suppressionEnabled = true;
         this.writableStackTrace = true;
         fillInStackTrace();
+        this.message = cause == null ? null : cause.toString();
         this.cause = cause;
     }
 

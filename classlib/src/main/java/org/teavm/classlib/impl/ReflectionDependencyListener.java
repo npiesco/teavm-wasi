@@ -98,7 +98,11 @@ public class ReflectionDependencyListener extends AbstractDependencyListener {
 
     @Override
     public void classReached(DependencyAgent agent, String className) {
-        allClasses.propagate(agent.getType(className));
+        // org.teavm.* is the compiler's own runtime: on a JVM it is not on the program's classpath, so it cannot be
+        // loaded by name (ClasspathScanner excludes it from the classpath for the same reason).
+        if (!className.startsWith("org.teavm.")) {
+            allClasses.propagate(agent.getType(className));
+        }
     }
 
     @Override

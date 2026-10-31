@@ -73,4 +73,13 @@ public interface TSet<E> extends TCollection<E> {
     static <E> TSet<E> of(E... elements) {
         return new TTemplateCollections.NElementSet<>(elements);
     }
+
+    // JDK Set.copyOf: duplicates collapse (through a HashSet) instead of failing as Set.of does.
+    @SuppressWarnings("unchecked")
+    static <E> TSet<E> copyOf(TCollection<? extends E> coll) {
+        if (coll instanceof TTemplateCollections.AbstractImmutableSet) {
+            return (TSet<E>) coll;
+        }
+        return TSet.<E>of((E[]) new THashSet<>(coll).toArray());
+    }
 }

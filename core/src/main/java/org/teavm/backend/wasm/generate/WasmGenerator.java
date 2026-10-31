@@ -105,6 +105,7 @@ public class WasmGenerator {
 
         WasmGenerationVisitor visitor = new WasmGenerationVisitor(context, classGenerator, binaryWriter, function,
                 firstVariable, asyncMethods.test(methodReference));
+        visitor.setManaged(context.getCharacteristics().isManaged(methodReference));
         methodAst.getBody().acceptVisitor(visitor);
         if (visitor.result instanceof WasmBlock) {
             ((WasmBlock) visitor.result).setType(function.getResult());

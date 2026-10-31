@@ -280,8 +280,9 @@ public class TObject {
         return obj.hashCode;
     }
 
+    // Not @NoSideEffects: it stores the identity hash in the object header, and dropping the store would hand out a
+    // new identity on the next call.
     @DelegateTo("setHashCodeLowLevelImpl")
-    @NoSideEffects
     private static native void setHashCodeLowLevel(TObject obj, int value);
 
     @Unmanaged

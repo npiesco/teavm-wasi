@@ -267,7 +267,7 @@ public class THashtable<K, V> extends TDictionary<K, V> implements TMap<K, V>,
     }
 
     public THashtable(TMap<? extends K, ? extends V> map) {
-        this(map.size() < 6 ? 11 : (map.size() * 4 / 3) + 11);
+        this(Math.max(2 * map.size(), 11), 0.75f);
         putAll(map);
     }
 

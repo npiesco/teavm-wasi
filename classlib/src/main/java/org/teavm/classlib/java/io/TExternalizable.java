@@ -15,5 +15,5 @@
  */
 package org.teavm.classlib.java.io;
 
-public interface TExternalizable {
+public interface TExternalizable extends TSerializable {
 }

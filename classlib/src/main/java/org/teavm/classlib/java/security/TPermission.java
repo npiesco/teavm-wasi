@@ -15,9 +15,10 @@
  */
 package org.teavm.classlib.java.security;
 
+import org.teavm.classlib.java.io.TSerializable;
 import org.teavm.classlib.java.lang.TSecurityException;
 
-public abstract class TPermission implements TGuard {
+public abstract class TPermission implements TGuard, TSerializable {
     private String name;
 
     public TPermission(String name) {

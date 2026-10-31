@@ -19,11 +19,18 @@ public class TDuplicateFormatFlagsException extends TIllegalFormatException {
     private String flags;
 
     public TDuplicateFormatFlagsException(String flags) {
-        super("Duplicate format flags: " + flags);
+        if (flags == null) {
+            throw new NullPointerException();
+        }
         this.flags = flags;
     }
 
     public String getFlags() {
         return flags;
+    }
+
+    @Override
+    public String getMessage() {
+        return "Flags = '" + flags + "'";
     }
 }

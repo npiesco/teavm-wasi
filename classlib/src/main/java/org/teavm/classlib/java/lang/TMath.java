@@ -78,8 +78,34 @@ public final class TMath extends TObject {
     @Unmanaged
     public static native double log(double a);
 
+    // fdlibm's e_log10 (as StrictMath.log10): the binary exponent k is split off and k * log10(2) added in high
+    // and low parts, so log10(10^n) is exactly n, which log(a) / ln(10) is not.
     public static double log10(double a) {
-        return log(a) / 2.302585092994046 /* log_e 10 */;
+        long bits = Double.doubleToRawLongBits(a);
+        int hx = (int) (bits >> 32);
+        int k = 0;
+        if (hx < 0x00100000) {
+            if ((bits & 0x7FFFFFFFFFFFFFFFL) == 0) {
+                return Double.NEGATIVE_INFINITY;
+            }
+            if (hx < 0) {
+                return Double.NaN;
+            }
+            k -= 54;
+            a *= 1.80143985094819840000e+16;
+            bits = Double.doubleToRawLongBits(a);
+            hx = (int) (bits >> 32);
+        }
+        if (hx >= 0x7ff00000) {
+            return a + a;
+        }
+        k += (hx >> 20) - 1023;
+        int i = (k & 0x80000000) >>> 31;
+        hx = (hx & 0x000fffff) | ((0x3ff - i) << 20);
+        double y = k + i;
+        double x = Double.longBitsToDouble(((long) hx << 32) | (bits & 0xFFFFFFFFL));
+        double z = y * 3.69423907715893078616e-13 + 4.34294481903251816668e-01 * log(x);
+        return z + y * 3.01029995663611771306e-01;
     }
 
     @GeneratedBy(MathNativeGenerator.class)
@@ -293,20 +319,45 @@ public final class TMath extends TObject {
         return a > b ? a : b;
     }
 
+    // JDK semantics: NaN if either argument is NaN, and -0.0 is less than 0.0.
     public static double min(double a, double b) {
-        return a < b ? a : b;
+        if (a != a) {
+            return a;
+        }
+        if (a == 0 && b == 0) {
+            return 1 / a < 0 ? a : b;
+        }
+        return a <= b ? a : b;
     }
 
     public static double max(double a, double b) {
-        return a > b ? a : b;
+        if (a != a) {
+            return a;
+        }
+        if (a == 0 && b == 0) {
+            return 1 / a > 0 ? a : b;
+        }
+        return a >= b ? a : b;
     }
 
     public static float min(float a, float b) {
-        return a < b ? a : b;
+        if (a != a) {
+            return a;
+        }
+        if (a == 0 && b == 0) {
+            return 1 / a < 0 ? a : b;
+        }
+        return a <= b ? a : b;
     }
 
     public static float max(float a, float b) {
-        return a > b ? a : b;
+        if (a != a) {
+            return a;
+        }
+        if (a == 0 && b == 0) {
+            return 1 / a > 0 ? a : b;
+        }
+        return a >= b ? a : b;
     }
 
     public static int abs(int n) {
@@ -426,6 +477,42 @@ public final class TMath extends TObject {
         int bits = TFloat.floatToIntBits(f);
         int exponent = (bits >> 23) & 0xF;
         return exponent + 128;
+    }
+
+    // JDK Math.scalb: d * 2^scaleFactor rounded once. The scale is clamped to the range that can still change a
+    // finite value; the remainder modulo 2^9 is applied first and the rest in exact steps of 2^512 or 2^-512, so
+    // only the multiplication that reaches the final exponent can round.
+    public static double scalb(double d, int scaleFactor) {
+        int maxScale = 1023 + 1022 + 53 + 1;
+        double step;
+        int increment;
+        if (scaleFactor < 0) {
+            scaleFactor = Math.max(scaleFactor, -maxScale);
+            increment = -512;
+            step = powerOfTwo(-512);
+        } else {
+            scaleFactor = Math.min(scaleFactor, maxScale);
+            increment = 512;
+            step = powerOfTwo(512);
+        }
+        int adjust = scaleFactor % 512;
+        d *= powerOfTwo(adjust);
+        scaleFactor -= adjust;
+        while (scaleFactor != 0) {
+            d *= step;
+            scaleFactor -= increment;
+        }
+        return d;
+    }
+
+    public static float scalb(float f, int scaleFactor) {
+        int maxScale = 127 + 126 + 24 + 1;
+        scaleFactor = Math.max(Math.min(scaleFactor, maxScale), -maxScale);
+        return (float) ((double) f * powerOfTwo(scaleFactor));
+    }
+
+    private static double powerOfTwo(int n) {
+        return Double.longBitsToDouble(((long) n + 1023) << 52);
     }
 
     public static double nextAfter(double start, double direction) {

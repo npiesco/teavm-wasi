@@ -17,6 +17,7 @@ package org.teavm.classlib.java.lang;
 
 import org.teavm.backend.javascript.spi.InjectedBy;
 import org.teavm.classlib.PlatformDetector;
+import org.teavm.classlib.impl.text.FloatingDecimalParser;
 import org.teavm.interop.Import;
 import org.teavm.interop.NoSideEffects;
 import org.teavm.interop.Unmanaged;
@@ -77,119 +78,7 @@ public class TDouble extends TNumber implements TComparable<TDouble> {
     }
 
     public static double parseDouble(TString string) throws TNumberFormatException {
-        // TODO: parse infinite and different radix
-
-        if (string.isEmpty()) {
-            throw new TNumberFormatException();
-        }
-        int start = 0;
-        int end = string.length();
-        while (string.charAt(start) <= ' ') {
-            if (++start == end) {
-                throw new TNumberFormatException();
-            }
-        }
-        while (string.charAt(end - 1) <= ' ') {
-            --end;
-        }
-
-        boolean negative = false;
-        int index = start;
-        if (string.charAt(index) == '-') {
-            ++index;
-            negative = true;
-        } else if (string.charAt(index) == '+') {
-            ++index;
-        }
-        if (index == end) {
-            throw new TNumberFormatException();
-        }
-        char c = string.charAt(index);
-
-        long mantissa = 0;
-        int exp = 0;
-        boolean hasOneDigit = false;
-        if (c != '.') {
-            hasOneDigit = true;
-            if (c < '0' || c > '9') {
-                throw new TNumberFormatException();
-            }
-            while (index < end && string.charAt(index) == '0') {
-                ++index;
-            }
-            while (index < end) {
-                c = string.charAt(index);
-                if (c < '0' || c > '9') {
-                    break;
-                }
-                if (mantissa < TLong.MAX_VALUE / 10 - 9) {
-                    mantissa = mantissa * 10 + (c - '0');
-                } else {
-                    ++exp;
-                }
-                ++index;
-            }
-        }
-        if (index < end && string.charAt(index) == '.') {
-            ++index;
-            while (index < end) {
-                c = string.charAt(index);
-                if (c < '0' || c > '9') {
-                    break;
-                }
-                if (mantissa < TLong.MAX_VALUE / 10 - 9) {
-                    mantissa = mantissa * 10 + (c - '0');
-                    --exp;
-                }
-                ++index;
-                hasOneDigit = true;
-            }
-            if (!hasOneDigit) {
-                throw new TNumberFormatException();
-            }
-        }
-        if (index < end) {
-            c = string.charAt(index);
-            if (c != 'e' && c != 'E') {
-                throw new TNumberFormatException();
-            }
-            ++index;
-            boolean negativeExp = false;
-            if (index == end) {
-                throw new TNumberFormatException();
-            }
-            if (string.charAt(index) == '-') {
-                ++index;
-                negativeExp = true;
-            } else if (string.charAt(index) == '+') {
-                ++index;
-            }
-            int numExp = 0;
-            hasOneDigit = false;
-            while (index < end) {
-                c = string.charAt(index);
-                if (c < '0' || c > '9') {
-                    break;
-                }
-                numExp = 10 * numExp + (c - '0');
-                hasOneDigit = true;
-                ++index;
-            }
-            if (!hasOneDigit) {
-                throw new TNumberFormatException();
-            }
-            if (negativeExp) {
-                numExp = -numExp;
-            }
-            exp += numExp;
-        }
-        if (exp > 308 || exp == 308 && mantissa > 17976931348623157L) {
-            return !negative ? POSITIVE_INFINITY : NEGATIVE_INFINITY;
-        }
-        if (negative) {
-            mantissa = -mantissa;
-        }
-        return mantissa * decimalExponent(exp);
+        return FloatingDecimalParser.parseDouble((String) (Object) string);
     }
 
     public static double decimalExponent(int n) {
@@ -221,7 +110,8 @@ public class TDouble extends TNumber implements TComparable<TDouble> {
         if (this == other) {
             return true;
         }
-        return other instanceof TDouble && ((TDouble) other).value == value;
+        return other instanceof TDouble
+                && doubleToLongBits(((TDouble) other).value) == doubleToLongBits(value);
     }
 
     @Override
@@ -229,13 +119,36 @@ public class TDouble extends TNumber implements TComparable<TDouble> {
         return hashCode(value);
     }
 
+    public static double sum(double a, double b) {
+        return a + b;
+    }
+
+    public static double max(double a, double b) {
+        return Math.max(a, b);
+    }
+
+    public static double min(double a, double b) {
+        return Math.min(a, b);
+    }
+
     public static int hashCode(double d) {
         long h = doubleToLongBits(d);
         return (int) (h >>> 32) ^ (int) h;
     }
 
-    @NoSideEffects
-    public static native int compare(double a, double b);
+    // JDK: numerical order, with -0.0 below 0.0 and NaN above everything and equal to itself (the bytecode
+    // comparison treats -0.0 and 0.0 as equal and orders NaN by the instruction used).
+    public static int compare(double a, double b) {
+        if (a < b) {
+            return -1;
+        }
+        if (a > b) {
+            return 1;
+        }
+        long aBits = doubleToLongBits(a);
+        long bBits = doubleToLongBits(b);
+        return aBits == bBits ? 0 : aBits < bBits ? -1 : 1;
+    }
 
     @Override
     public int compareTo(TDouble other) {
@@ -327,6 +240,8 @@ public class TDouble extends TNumber implements TComparable<TDouble> {
             return "NaN";
         } else if (isInfinite(d)) {
             return d > 0 ? "Infinity" : "-Infinity";
+        } else if (d == 0) {
+            return doubleToRawLongBits(d) < 0 ? "-0x0.0p0" : "0x0.0p0";
         }
         char[] buffer = new char[30];
         int sz = 0;

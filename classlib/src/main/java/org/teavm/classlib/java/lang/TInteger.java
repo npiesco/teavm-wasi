@@ -17,6 +17,7 @@ package org.teavm.classlib.java.lang;
 
 import static org.teavm.classlib.impl.IntegerUtil.toUnsignedLogRadixString;
 import org.teavm.backend.javascript.spi.InjectedBy;
+import org.teavm.classlib.impl.ParseSupport;
 import org.teavm.interop.NoSideEffects;
 
 public class TInteger extends TNumber implements TComparable<TInteger> {
@@ -42,8 +43,21 @@ public class TInteger extends TNumber implements TComparable<TInteger> {
         return new TAbstractStringBuilder(20).append(i, radix).toString();
     }
 
+    public static int sum(int a, int b) {
+        return a + b;
+    }
+
+    public static int max(int a, int b) {
+        return Math.max(a, b);
+    }
+
+    public static int min(int a, int b) {
+        return Math.min(a, b);
+    }
+
+    // JDK: an Integer's hash code is its value.
     public static int hashCode(int value) {
-        return (value >>> 4) ^ (value << 28) ^ (value << 8) ^ (value >>> 24);
+        return value;
     }
 
     public static String toHexString(int i) {
@@ -63,45 +77,12 @@ public class TInteger extends TNumber implements TComparable<TInteger> {
     }
 
     public static int parseInt(String s, int radix) throws TNumberFormatException {
-        if (radix < TCharacter.MIN_RADIX || radix > TCharacter.MAX_RADIX) {
-            throw new TNumberFormatException("Illegal radix: " + radix);
-        }
-        if (s == null || s.isEmpty()) {
-            throw new TNumberFormatException("String is null or empty");
-        }
-        boolean negative = false;
-        int index = 0;
-        switch (s.charAt(0)) {
-            case '-':
-                negative = true;
-                index = 1;
-                break;
-            case '+':
-                index = 1;
-                break;
-        }
-        int value = 0;
-        if (index == s.length()) {
-            throw new TNumberFormatException();
-        }
-        while (index < s.length()) {
-            int digit = TCharacter.getNumericValue(s.charAt(index++));
-            if (digit < 0) {
-                throw new TNumberFormatException("String contains invalid digits: " + s);
-            }
-            if (digit >= radix) {
-                throw new TNumberFormatException("String contains digits out of radix " + radix
-                        + ": " + s);
-            }
-            value = radix * value + digit;
-            if (value < 0) {
-                if (index == s.length() && value == MIN_VALUE && negative) {
-                    return MIN_VALUE;
-                }
-                throw new TNumberFormatException("The value is too big for int type: " + s);
-            }
-        }
-        return negative ? -value : value;
+        return (int) ParseSupport.parseSigned(s, radix, MIN_VALUE, MAX_VALUE);
+    }
+
+    public static int parseInt(CharSequence s, int beginIndex, int endIndex, int radix)
+            throws TNumberFormatException {
+        return (int) ParseSupport.parseSigned(s, beginIndex, endIndex, radix, MIN_VALUE, MAX_VALUE);
     }
 
     public static int parseInt(String s) throws TNumberFormatException {
@@ -189,66 +170,7 @@ public class TInteger extends TNumber implements TComparable<TInteger> {
     }
 
     public static TInteger decode(String nm) throws TNumberFormatException {
-        if (nm == null || nm.isEmpty()) {
-            throw new TNumberFormatException("Can't parse empty or null string");
-        }
-        int index = 0;
-        boolean negaive = false;
-        if (nm.charAt(index) == '+') {
-            ++index;
-        } else if (nm.charAt(index) == '-') {
-            ++index;
-            negaive = true;
-        }
-        if (index >= nm.length()) {
-            throw new TNumberFormatException("The string does not represent a number");
-        }
-        int radix = 10;
-        if (nm.charAt(index) == '#') {
-            radix = 16;
-            ++index;
-        } else if (nm.charAt(index) == '0') {
-            ++index;
-            if (index == nm.length()) {
-                return TInteger.valueOf(0);
-            }
-            if (nm.charAt(index) == 'x' || nm.charAt(index) == 'X') {
-                radix = 16;
-                ++index;
-            } else {
-                radix = 8;
-            }
-        }
-        if (index >= nm.length()) {
-            throw new TNumberFormatException("The string does not represent a number");
-        }
-        int value = 0;
-        while (index < nm.length()) {
-            int digit = decodeDigit(nm.charAt(index++));
-            if (digit >= radix) {
-                throw new TNumberFormatException("The string does not represent a number");
-            }
-            value = value * radix + digit;
-            if (value < 0) {
-                if (negaive && value == MIN_VALUE && index == nm.length()) {
-                    return TInteger.valueOf(MIN_VALUE);
-                }
-                throw new TNumberFormatException("The string represents a too big number");
-            }
-        }
-        return TInteger.valueOf(negaive ? -value : value);
-    }
-
-    private static int decodeDigit(char c) {
-        if (c >= '0' && c <= '9') {
-            return c - '0';
-        } else if (c >= 'a' && c <= 'z') {
-            return c - 'a' + 10;
-        } else if (c >= 'A' && c <= 'Z') {
-            return c - 'A' + 10;
-        } else {
-            return 255;
-        }
+        return valueOf((int) ParseSupport.decode(nm, MIN_VALUE, MAX_VALUE));
     }
 
     @Override
@@ -390,16 +312,11 @@ public class TInteger extends TNumber implements TComparable<TInteger> {
     }
 
     public static int parseUnsignedInt(String s, int radix) throws TNumberFormatException {
-        if (s == null) {
-            throw new TNumberFormatException("Cannot parse null string");
-        }
-        if (!s.isEmpty() && s.charAt(0) == '-') {
-            throw new TNumberFormatException("Illegal leading minus sign on unsigned string " + s + ".");
-        }
-        long value = TLong.parseLong(s, radix);
-        if ((value & 0xFFFFFFFF00000000L) != 0) {
-            throw new TNumberFormatException("String value " + s + " exceeds range of unsigned int.");
-        }
-        return (int) value;
+        return ParseSupport.parseUnsignedInt(s, radix);
+    }
+
+    public static int parseUnsignedInt(CharSequence s, int beginIndex, int endIndex, int radix)
+            throws TNumberFormatException {
+        return ParseSupport.parseUnsignedInt(s, beginIndex, endIndex, radix);
     }
 }

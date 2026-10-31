@@ -484,7 +484,8 @@ class DependencyGraphBuilder {
 
             DependencyNode instanceNode = getNode(instance);
             DependencyNode receiverNode = getNode(receiver);
-            receiverNode.propagate(dependencyAnalyzer.classType);
+            receiverNode.propagate(dependencyAnalyzer.getType("[Ljava/lang/Class;"));
+            receiverNode.getArrayItem().propagate(dependencyAnalyzer.classType);
             instanceNode.getClassValueNode().addConsumer(type -> {
                 String className = type.getName();
                 if (className.startsWith("[")) {
@@ -495,10 +496,14 @@ class DependencyGraphBuilder {
                 if (cls != null) {
                     for (String iface : cls.getInterfaces()) {
                         receiverNode.getClassValueNode().propagate(dependencyAnalyzer.getType(iface));
+                        receiverNode.getArrayItem().getClassValueNode().propagate(dependencyAnalyzer.getType(iface));
                     }
                 }
 
-                methodDep.getVariable(0).propagate(type);
+                // The receiver is a Class whose value is this type; class metadata requirements read it from the
+                // class value node.
+                methodDep.getVariable(0).propagate(dependencyAnalyzer.classType);
+                methodDep.getVariable(0).getClassValueNode().propagate(type);
             });
         }
 

@@ -139,21 +139,39 @@ public final class ExceptionHandling {
         }
     }
 
+    // Unmanaged code lowers a throw statement to a trap, so the runtime checks raise through throwException, which
+    // finds the handler as a managed throw does.
     @Unmanaged
     public static void throwClassCastException() {
-        throw new ClassCastException();
+        throwException(new ClassCastException());
     }
 
     @Unmanaged
     @Export(name = "teavm_throwNullPointerException")
     public static void throwNullPointerException() {
-        throw new NullPointerException();
+        throwException(new NullPointerException());
+    }
+
+    // With the JDK's helpful message, computed when the program was parsed.
+    @Unmanaged
+    public static void throwNullPointerException(String message) {
+        throwException(new NullPointerException(message));
     }
 
     @Unmanaged
     @Export(name = "teavm_throwArrayIndexOutOfBoundsException")
     public static void throwArrayIndexOutOfBoundsException() {
-        throw new ArrayIndexOutOfBoundsException();
+        throwException(new ArrayIndexOutOfBoundsException());
+    }
+
+    @Unmanaged
+    public static void throwArrayIndexOutOfBoundsException(int index, int length) {
+        throwException(arrayIndexOutOfBounds(index, length));
+    }
+
+    // Built in managed code so the message's intermediate objects stay reachable for the GC.
+    private static ArrayIndexOutOfBoundsException arrayIndexOutOfBounds(int index, int length) {
+        return new ArrayIndexOutOfBoundsException("Index " + index + " out of bounds for length " + length);
     }
 
     @Unmanaged

@@ -111,8 +111,8 @@ public class TByte extends TNumber implements TComparable<TByte> {
 
     public static byte parseByte(String s, int radix) throws TNumberFormatException {
         int value = TInteger.parseInt(s, radix);
-        if (value < MIN_VALUE || value >= MAX_VALUE) {
-            throw new TNumberFormatException();
+        if (value < MIN_VALUE || value > MAX_VALUE) {
+            throw new TNumberFormatException("Value out of range. Value:\"" + s + "\" Radix:" + radix);
         }
         return (byte) value;
     }
@@ -126,10 +126,10 @@ public class TByte extends TNumber implements TComparable<TByte> {
     }
 
     public static TByte decode(String nm) throws TNumberFormatException {
-        TInteger value = TInteger.decode(nm);
-        if (value.intValue() < MIN_VALUE || value.intValue() >= MAX_VALUE) {
-            throw new TNumberFormatException();
+        int value = TInteger.decode(nm).intValue();
+        if (value < MIN_VALUE || value > MAX_VALUE) {
+            throw new TNumberFormatException("Value " + value + " out of range from input " + nm);
         }
-        return TByte.valueOf((byte) value.intValue());
+        return valueOf((byte) value);
     }
 }

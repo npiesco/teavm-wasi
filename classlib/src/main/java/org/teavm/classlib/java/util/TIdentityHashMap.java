@@ -42,7 +42,8 @@ import org.teavm.classlib.java.lang.TIllegalStateException;
 import org.teavm.classlib.java.lang.TObject;
 import org.teavm.interop.Rename;
 
-public class TIdentityHashMap<K, V> extends TAbstractMap<K, V> implements TCloneable, TSerializable {
+public class TIdentityHashMap<K, V> extends TAbstractMap<K, V> implements TMap<K, V>, TSerializable,
+        TCloneable {
     transient int elementCount;
     transient HashEntry<K, V>[] elementData;
     transient int modCount;

@@ -285,6 +285,10 @@ public class JavaScriptTarget implements TeaVMTarget, TeaVMJavaScriptHost {
             exceptionCons.getVariable(0).propagate(dependencyAnalyzer.getType(NullPointerException.class.getName()));
             exceptionCons.use();
 
+            exceptionCons = dependencyAnalyzer.linkMethod(ProgramUtils.NPE_INIT_MESSAGE_METHOD);
+            exceptionCons.getVariable(0).propagate(dependencyAnalyzer.getType(NullPointerException.class.getName()));
+            exceptionCons.use();
+
             exceptionCons = dependencyAnalyzer.linkMethod(new MethodReference(
                     ClassCastException.class, "<init>", void.class));
             exceptionCons.getVariable(0).propagate(dependencyAnalyzer.getType(ClassCastException.class.getName()));

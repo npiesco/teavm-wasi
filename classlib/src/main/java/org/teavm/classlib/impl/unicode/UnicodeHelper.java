@@ -125,7 +125,7 @@ public final class UnicodeHelper {
             byte b = bytes[i];
             if (i < bytes.length - 1 && b == bytes[i + 1]) {
                 int count = 0;
-                while (count < 16384 && bytes[i + count] == b) {
+                while (count < 16384 && i + count < bytes.length && bytes[i + count] == b) {
                     ++count;
                 }
                 i += count;
@@ -172,22 +172,37 @@ public final class UnicodeHelper {
                 count = 1;
             }
             if (b != 0 || count < 128) {
-                if (index + count >= buffer.length) {
-                    ranges[rangeIndex++] = new Range(codePoint, codePoint + index, Arrays.copyOf(buffer, index));
-                    codePoint += index + count;
-                    index = 0;
-                }
-                while (count-- > 0) {
-                    buffer[index++] = b;
+                // A run longer than the room left (whole Unicode ranges such as CJK or private use planes) continues
+                // in the next range.
+                while (count > 0) {
+                    if (index == buffer.length) {
+                        ranges = ensureRanges(ranges, rangeIndex);
+                        ranges[rangeIndex++] = new Range(codePoint, codePoint + index, Arrays.copyOf(buffer, index));
+                        codePoint += index;
+                        index = 0;
+                    }
+                    int n = Math.min(count, buffer.length - index);
+                    Arrays.fill(buffer, index, index + n, b);
+                    index += n;
+                    count -= n;
                 }
             } else {
                 if (index > 0) {
+                    ranges = ensureRanges(ranges, rangeIndex);
                     ranges[rangeIndex++] = new Range(codePoint, codePoint + index, Arrays.copyOf(buffer, index));
                 }
                 codePoint += index + count;
                 index = 0;
             }
         }
+        if (index > 0) {
+            ranges = ensureRanges(ranges, rangeIndex);
+            ranges[rangeIndex++] = new Range(codePoint, codePoint + index, Arrays.copyOf(buffer, index));
+        }
         return Arrays.copyOf(ranges, rangeIndex);
+    }
+
+    private static Range[] ensureRanges(Range[] ranges, int size) {
+        return size < ranges.length ? ranges : Arrays.copyOf(ranges, ranges.length * 2);
     }
 }

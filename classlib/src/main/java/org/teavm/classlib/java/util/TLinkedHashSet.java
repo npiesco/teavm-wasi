@@ -48,7 +48,8 @@ public class TLinkedHashSet<E> extends THashSet<E> implements TSet<E>, TCloneabl
     }
 
     public TLinkedHashSet(TCollection<? extends E> collection) {
-        super(new TLinkedHashMap<E, THashSet<E>>(collection.size() < 6 ? 11 : collection.size() * 2));
+        // JDK 21: HashMap.calculateHashMapCapacity(Math.max(c.size(), 12)).
+        super(new TLinkedHashMap<E, THashSet<E>>(THashMap.capacityFor(Math.max(collection.size(), 12))));
         for (TIterator<? extends E> iter = collection.iterator(); iter.hasNext();) {
             add(iter.next());
         }

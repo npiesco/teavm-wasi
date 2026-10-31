@@ -15,7 +15,7 @@
  */
 package org.teavm.classlib.java.nio;
 
-import org.teavm.classlib.java.io.TIOException;
+import java.io.IOException;
 import org.teavm.classlib.java.lang.TReadable;
 
 public abstract class TCharBuffer extends TBuffer implements Comparable<TCharBuffer>, Appendable,
@@ -46,7 +46,7 @@ public abstract class TCharBuffer extends TBuffer implements Comparable<TCharBuf
     }
 
     @Override
-    public int read(TCharBuffer target) throws TIOException {
+    public int read(TCharBuffer target) throws IOException {
         if (target == null) {
             throw new NullPointerException("Target is null");
         }

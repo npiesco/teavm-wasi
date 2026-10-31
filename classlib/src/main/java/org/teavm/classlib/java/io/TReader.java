@@ -18,8 +18,10 @@ package org.teavm.classlib.java.io;
 import java.io.IOException;
 import org.teavm.classlib.java.lang.TMath;
 import org.teavm.classlib.java.lang.TObject;
+import org.teavm.classlib.java.lang.TReadable;
+import org.teavm.classlib.java.nio.TCharBuffer;
 
-public abstract class TReader implements TCloseable {
+public abstract class TReader implements TReadable, TCloseable {
     protected TObject lock;
 
     protected TReader() {
@@ -68,5 +70,16 @@ public abstract class TReader implements TCloseable {
 
     public void reset() throws IOException {
         throw new IOException();
+    }
+
+    @Override
+    public int read(TCharBuffer target) throws IOException {
+        int length = target.remaining();
+        char[] buffer = new char[length];
+        int count = read(buffer, 0, length);
+        if (count > 0) {
+            target.put(buffer, 0, count);
+        }
+        return count;
     }
 }

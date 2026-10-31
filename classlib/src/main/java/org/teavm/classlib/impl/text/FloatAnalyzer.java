@@ -15,63 +15,14 @@
  */
 package org.teavm.classlib.impl.text;
 
-import java.util.Arrays;
-
 public final class FloatAnalyzer {
     public static final int PRECISION = 9;
     public static final int MAX_POS = 100000000;
 
-    private static final int MAX_ABS_DEC_EXP = 50;
-    private static final int[] mantissa10Table = new int[MAX_ABS_DEC_EXP * 2];
-    private static final int[] exp10Table = new int[MAX_ABS_DEC_EXP * 2];
-
     private FloatAnalyzer() {
     }
 
-    static {
-        int decMantissaOne = 2000000000;
-
-        int mantissa = decMantissaOne;
-        int exponent = 127;
-
-        for (int i = 0; i < MAX_ABS_DEC_EXP; ++i) {
-            mantissa10Table[i + MAX_ABS_DEC_EXP] = Integer.divideUnsigned(mantissa, 20);
-            exp10Table[i + MAX_ABS_DEC_EXP] = exponent;
-
-            mantissa = Integer.divideUnsigned(mantissa, 10);
-            int remainder = Integer.remainderUnsigned(mantissa, 10);
-            while (mantissa <= decMantissaOne && (mantissa & (1 << 31)) == 0) {
-                mantissa <<= 1;
-                exponent++;
-                remainder <<= 1;
-            }
-            mantissa += remainder / 10;
-        }
-
-        int maxMantissa = Integer.MAX_VALUE / 10;
-        mantissa = decMantissaOne;
-        exponent = 127;
-        for (int i = 0; i < MAX_ABS_DEC_EXP; ++i) {
-            int nextMantissa = mantissa;
-            int shift = 0;
-            while (nextMantissa > maxMantissa) {
-                nextMantissa >>= 1;
-                shift++;
-                exponent--;
-            }
-
-            nextMantissa *= 10;
-            if (shift > 0) {
-                long shiftedOffPart = mantissa & ((1 << shift) - 1);
-                nextMantissa += (shiftedOffPart * 10) >> shift;
-            }
-            mantissa = nextMantissa;
-
-            mantissa10Table[MAX_ABS_DEC_EXP - i - 1] = Integer.divideUnsigned(mantissa, 20);
-            exp10Table[MAX_ABS_DEC_EXP - i - 1] = exponent;
-        }
-    }
-
+    // The JDK's Float.toString digits (ShortestDecimal), padded to PRECISION digits.
     public static void analyze(float d, Result result) {
         int bits = Float.floatToIntBits(d);
         result.sign = (bits & (1 << 31)) != 0;
@@ -82,88 +33,18 @@ public final class FloatAnalyzer {
             result.exponent = 0;
             return;
         }
-
-        int errorShift = 0;
+        ShortestDecimal decimal = new ShortestDecimal();
         if (exponent == 0) {
-            mantissa <<= 1;
-            while ((mantissa & (1L << 23)) == 0) {
-                mantissa <<= 1;
-                exponent--;
-                ++errorShift;
-            }
+            decimal.compute(mantissa, -149, false);
         } else {
-            mantissa |= 1 << 23;
+            decimal.compute(mantissa | (1 << 23), exponent - 150, mantissa == 0 && exponent > 1);
         }
-
-        int decExponent = Arrays.binarySearch(exp10Table, exponent);
-        if (decExponent < 0) {
-            decExponent = -decExponent - 2;
+        long scaled = decimal.digits;
+        for (int i = decimal.length; i < PRECISION; ++i) {
+            scaled *= 10;
         }
-        int binExponentCorrection = exponent - exp10Table[decExponent];
-        int mantissaShift = 9 + binExponentCorrection;
-
-        int decMantissa = (int) (((long) mantissa * mantissa10Table[decExponent]) >>> (32 - mantissaShift));
-        if (decMantissa >= 1000000000) {
-            ++decExponent;
-            binExponentCorrection = exponent - exp10Table[decExponent];
-            mantissaShift = 9 + binExponentCorrection;
-            decMantissa = (int) (((long) mantissa * mantissa10Table[decExponent]) >>> (32 - mantissaShift));
-        }
-
-        errorShift = 31 - mantissaShift - errorShift;
-        int error = errorShift >= 0
-                ? mantissa10Table[decExponent] >>> errorShift
-                : mantissa10Table[decExponent] << (-errorShift);
-        int upError = (error + 1) >> 1;
-        int downError = error >> 1;
-        if (mantissa == (1 << 22)) {
-            downError >>= 2;
-        }
-
-        int lowerPos = findLowerDistanceToZero(decMantissa, downError);
-        int upperPos = findUpperDistanceToZero(decMantissa, upError);
-        if (lowerPos > upperPos) {
-            decMantissa = (decMantissa / lowerPos) * lowerPos;
-        } else if (lowerPos < upperPos) {
-            decMantissa = (decMantissa / upperPos) * upperPos + upperPos;
-        } else {
-            decMantissa = ((decMantissa + upperPos / 2) / upperPos) * upperPos;
-        }
-
-        if (decMantissa >= 1000000000) {
-            decExponent++;
-            decMantissa /= 10;
-        } else if (decMantissa < 100000000) {
-            decExponent--;
-            decMantissa *= 10;
-        }
-
-        result.mantissa = decMantissa;
-        result.exponent = decExponent - MAX_ABS_DEC_EXP;
-    }
-
-    private static int findLowerDistanceToZero(int mantissa, int error) {
-        int pos = 10;
-        while (pos <= error) {
-            pos *= 10;
-        }
-        int mantissaRight = mantissa % pos;
-        if (mantissaRight >= error / 2) {
-            pos /= 10;
-        }
-        return pos;
-    }
-
-    private static int findUpperDistanceToZero(int mantissa, int error) {
-        int pos = 10;
-        while (pos <= error) {
-            pos *= 10;
-        }
-        int mantissaRight = mantissa % pos;
-        if (pos - mantissaRight > error / 2) {
-            pos /= 10;
-        }
-        return pos;
+        result.mantissa = (int) scaled;
+        result.exponent = decimal.exponent;
     }
 
     public static class Result {

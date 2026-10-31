@@ -15,7 +15,12 @@
  */
 package org.teavm.classlib.java.util;
 
-public class TLinkedList<E> extends TAbstractSequentialList<E> implements TDeque<E> {
+import org.teavm.classlib.java.io.TSerializable;
+import org.teavm.classlib.java.lang.TCloneNotSupportedException;
+import org.teavm.classlib.java.lang.TCloneable;
+
+public class TLinkedList<E> extends TAbstractSequentialList<E> implements TList<E>, TDeque<E>, TCloneable,
+        TSerializable {
     static class Entry<E> {
         E item;
         Entry<E> next;
@@ -440,5 +445,25 @@ public class TLinkedList<E> extends TAbstractSequentialList<E> implements TDeque
             version = modCount;
             currentEntry = null;
         }
+    }
+
+    // As the JDK: a shallow copy of the same class holding the same elements.
+    @Override
+    @SuppressWarnings("unchecked")
+    public Object clone() {
+        TLinkedList<E> copy;
+        try {
+            copy = (TLinkedList<E>) super.clone();
+        } catch (TCloneNotSupportedException e) {
+            throw new InternalError(e);
+        }
+        copy.firstEntry = null;
+        copy.lastEntry = null;
+        copy.size = 0;
+        copy.modCount = 0;
+        for (Entry<E> entry = firstEntry; entry != null; entry = entry.next) {
+            copy.add(entry.item);
+        }
+        return copy;
     }
 }

@@ -16,6 +16,8 @@
 package org.teavm.classlib.java.io;
 
 import java.io.IOException;
+import java.util.Formatter;
+import java.util.Locale;
 import org.teavm.classlib.java.lang.TMath;
 import org.teavm.classlib.java.lang.TObject;
 import org.teavm.classlib.java.lang.TStringBuilder;
@@ -28,7 +30,7 @@ import org.teavm.classlib.java.nio.charset.TIllegalCharsetNameException;
 import org.teavm.classlib.java.nio.charset.TUnsupportedCharsetException;
 import org.teavm.classlib.java.nio.charset.impl.TUTF8Charset;
 
-public class TPrintStream extends TFilterOutputStream {
+public class TPrintStream extends TFilterOutputStream implements Appendable, TCloseable {
     private boolean autoFlush;
     private boolean errorState;
     private TStringBuilder sb = new TStringBuilder();
@@ -53,6 +55,12 @@ public class TPrintStream extends TFilterOutputStream {
 
     public TPrintStream(TOutputStream out) {
         this(out, false);
+    }
+
+    public TPrintStream(TOutputStream out, boolean autoFlush, TCharset charset) {
+        super(out);
+        this.autoFlush = autoFlush;
+        this.charset = charset;
     }
 
     public boolean checkError() {
@@ -162,6 +170,15 @@ public class TPrintStream extends TFilterOutputStream {
         print(buffer, 0, 1);
     }
 
+    public void print(boolean b) {
+        print(b ? "true" : "false");
+    }
+
+    public void print(float f) {
+        sb.append(f);
+        printSB();
+    }
+
     public void print(int i) {
         sb.append(i);
         printSB();
@@ -208,13 +225,55 @@ public class TPrintStream extends TFilterOutputStream {
     }
 
     public void println(char c) {
-        sb.append(c);
+        sb.append(c).append('\n');
         printSB();
     }
 
     public void println(boolean b) {
-        sb.append(b);
+        sb.append(b).append('\n');
         printSB();
+    }
+
+    public void println(char[] s) {
+        print(s);
+        print('\n');
+    }
+
+    public TPrintStream format(String format, Object... args) {
+        return format(Locale.getDefault(), format, args);
+    }
+
+    // As the JDK's: the formatter writes each piece to this stream as it is produced.
+    public TPrintStream format(Locale l, String format, Object... args) {
+        new Formatter(this, l).format(format, args);
+        return this;
+    }
+
+    public TPrintStream printf(String format, Object... args) {
+        return format(format, args);
+    }
+
+    public TPrintStream printf(Locale l, String format, Object... args) {
+        return format(l, format, args);
+    }
+
+    @Override
+    public TPrintStream append(CharSequence csq) {
+        print(String.valueOf(csq));
+        return this;
+    }
+
+    @Override
+    public TPrintStream append(CharSequence csq, int start, int end) {
+        CharSequence cs = csq == null ? "null" : csq;
+        print(cs.subSequence(start, end).toString());
+        return this;
+    }
+
+    @Override
+    public TPrintStream append(char c) {
+        print(c);
+        return this;
     }
 
     public void println(String s) {

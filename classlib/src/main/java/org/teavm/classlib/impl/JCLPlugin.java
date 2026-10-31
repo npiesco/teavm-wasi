@@ -47,6 +47,8 @@ import org.teavm.classlib.impl.unicode.NumberFormatMetadataGenerator;
 import org.teavm.classlib.impl.unicode.TimeZoneLocalizationGenerator;
 import org.teavm.classlib.java.lang.CharacterMetadataGenerator;
 import org.teavm.classlib.java.lang.reflect.AnnotationDependencyListener;
+import org.teavm.classlib.java.text.CollationMetadataGenerator;
+import org.teavm.classlib.java.text.NormalizerMetadataGenerator;
 import org.teavm.interop.PlatformMarker;
 import org.teavm.model.MethodReference;
 import org.teavm.model.ValueType;
@@ -86,6 +88,7 @@ public class JCLPlugin implements TeaVMPlugin {
             if (host.getExtension(TeaVMWasmHost.class) != null) {
                 host.add(new ServiceLoaderWasmSupport(serviceLoaderSupport));
                 host.add(new ReflectionWasmSupport());
+                host.add(new ProxySupport());
             }
         }
 
@@ -96,6 +99,7 @@ public class JCLPlugin implements TeaVMPlugin {
         }
 
         host.add(new AnnotationDependencyListener());
+        host.add(new SelfComparableSupport());
 
         LambdaMetafactorySubstitutor lms = new LambdaMetafactorySubstitutor();
         host.add(new MethodReference("java.lang.invoke.LambdaMetafactory", "metafactory",
@@ -180,6 +184,8 @@ public class JCLPlugin implements TeaVMPlugin {
     private void installMetadata(MetadataRegistration reg) {
         reg.register(new MethodReference(ClasspathResources.class, "embedded", ResourceMap.class),
                 new ClasspathResourcesGenerator());
+        reg.register(new MethodReference(PackageInfo.class, "embedded", ResourceMap.class),
+                new PackageInfoGenerator());
 
         reg.register(new MethodReference(DateTimeZoneProvider.class, "getResource", ResourceMap.class),
                 new TimeZoneGenerator());
@@ -243,6 +249,15 @@ public class JCLPlugin implements TeaVMPlugin {
                 new CharacterMetadataGenerator());
         reg.register(new MethodReference(Character.class, "acquireTitleCaseMapping", StringResource.class),
                 new CharacterMetadataGenerator());
+        CollationMetadataGenerator collation = new CollationMetadataGenerator();
+        for (String name : new String[] { "collationLocales", "collationTables", "collationRules" }) {
+            reg.register(new MethodReference("java.text.Collator", name, ValueType.parse(ResourceMap.class)),
+                    collation);
+        }
+        for (String name : new String[] { "obtainCombiningClasses", "obtainDecompositions", "obtainCompositions" }) {
+            reg.register(new MethodReference("java.text.Normalizer", name, ValueType.parse(StringResource.class)),
+                    new NormalizerMetadataGenerator());
+        }
     }
 
     @PlatformMarker

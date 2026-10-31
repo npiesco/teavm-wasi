@@ -19,11 +19,15 @@ public class TIllegalFormatCodePointException extends TIllegalFormatException {
     private int codePoint;
 
     public TIllegalFormatCodePointException(int codePoint) {
-        super("Can't convert code point " + codePoint + " to char");
         this.codePoint = codePoint;
     }
 
     public int getCodePoint() {
         return codePoint;
+    }
+
+    @Override
+    public String getMessage() {
+        return "Code point = 0x" + Integer.toHexString(codePoint);
     }
 }

@@ -72,6 +72,9 @@ public interface TSpliterator<T> {
 
     interface OfInt extends OfPrimitive<Integer, IntConsumer, OfInt> {
         @Override
+        OfInt trySplit();
+
+        @Override
         boolean tryAdvance(IntConsumer consumer);
 
         @Override
@@ -100,6 +103,9 @@ public interface TSpliterator<T> {
 
     interface OfLong extends OfPrimitive<Long, LongConsumer, OfLong> {
         @Override
+        OfLong trySplit();
+
+        @Override
         boolean tryAdvance(LongConsumer consumer);
 
         @Override
@@ -123,6 +129,9 @@ public interface TSpliterator<T> {
     }
 
     interface OfDouble extends OfPrimitive<Double, DoubleConsumer, OfDouble> {
+        @Override
+        OfDouble trySplit();
+
         @Override
         boolean tryAdvance(DoubleConsumer consumer);
 

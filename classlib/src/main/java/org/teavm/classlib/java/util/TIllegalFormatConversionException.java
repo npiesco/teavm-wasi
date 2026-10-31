@@ -20,7 +20,9 @@ public class TIllegalFormatConversionException extends TIllegalFormatException {
     private Class<?> argumentClass;
 
     public TIllegalFormatConversionException(char conversion, Class<?> argumentClass) {
-        super("Can't format argument of " + argumentClass + " using " + conversion + " conversion");
+        if (argumentClass == null) {
+            throw new NullPointerException();
+        }
         this.conversion = conversion;
         this.argumentClass = argumentClass;
     }
@@ -31,5 +33,10 @@ public class TIllegalFormatConversionException extends TIllegalFormatException {
 
     public Class<?> getArgumentClass() {
         return argumentClass;
+    }
+
+    @Override
+    public String getMessage() {
+        return conversion + " != " + argumentClass.getName();
     }
 }

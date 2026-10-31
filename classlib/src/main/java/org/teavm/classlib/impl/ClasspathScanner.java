@@ -30,6 +30,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Predicate;
+import java.util.jar.Attributes;
+import java.util.jar.JarEntry;
+import java.util.jar.JarFile;
+import java.util.jar.Manifest;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
@@ -67,6 +71,92 @@ final class ClasspathScanner {
             throw new UncheckedIOException(e);
         }
         return found;
+    }
+
+    /**
+     * Package attributes as URLClassLoader.definePackage derives them: the first classpath entry (in classpath
+     * order) holding a class of the package defines it; for an archive, its manifest's per-package section
+     * ({@code pkg/path/}) overrides the main attributes; a directory has no manifest, so every attribute is absent.
+     */
+    static Map<String, Map<String, String>> packages(ClassLoader loader) {
+        Map<String, Map<String, String>> packages = new LinkedHashMap<>();
+        List<File> directories = new ArrayList<>();
+        List<File> archives = new ArrayList<>();
+        for (File entry : classpath(loader)) {
+            (entry.isDirectory() ? directories : archives).add(entry);
+        }
+        try {
+            for (File directory : directories) {
+                Path root = directory.toPath();
+                List<Path> files;
+                try (Stream<Path> walk = Files.walk(root)) {
+                    files = walk.filter(Files::isRegularFile).sorted().collect(Collectors.toList());
+                }
+                if (files.stream().anyMatch(file -> relativeName(root, file).startsWith(TOOLCHAIN_PREFIX))) {
+                    continue;
+                }
+                for (Path file : files) {
+                    String name = relativeName(root, file);
+                    if (name.endsWith(CLASS_SUFFIX)) {
+                        packages.putIfAbsent(packageOf(name), new LinkedHashMap<>());
+                    }
+                }
+            }
+            for (File archive : archives) {
+                try (JarFile jar = new JarFile(archive)) {
+                    List<String> classes = new ArrayList<>();
+                    boolean toolchain = false;
+                    for (Enumeration<JarEntry> e = jar.entries(); e.hasMoreElements();) {
+                        String name = e.nextElement().getName();
+                        toolchain |= name.startsWith(TOOLCHAIN_PREFIX);
+                        if (name.endsWith(CLASS_SUFFIX)) {
+                            classes.add(name);
+                        }
+                    }
+                    if (toolchain) {
+                        continue;
+                    }
+                    Manifest manifest = jar.getManifest();
+                    for (String name : classes) {
+                        String pkg = packageOf(name);
+                        if (!packages.containsKey(pkg)) {
+                            packages.put(pkg, packageAttributes(manifest, pkg));
+                        }
+                    }
+                }
+            }
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        return packages;
+    }
+
+    private static final String[] PACKAGE_ATTRIBUTES = { "Specification-Title", "Specification-Version",
+            "Specification-Vendor", "Implementation-Title", "Implementation-Version", "Implementation-Vendor",
+            "Sealed" };
+
+    private static Map<String, String> packageAttributes(Manifest manifest, String pkg) {
+        Map<String, String> result = new LinkedHashMap<>();
+        if (manifest == null) {
+            return result;
+        }
+        Attributes section = manifest.getAttributes(pkg.replace('.', '/') + "/");
+        Attributes main = manifest.getMainAttributes();
+        for (String key : PACKAGE_ATTRIBUTES) {
+            String value = section != null ? section.getValue(key) : null;
+            if (value == null) {
+                value = main.getValue(key);
+            }
+            if (value != null) {
+                result.put(key, value);
+            }
+        }
+        return result;
+    }
+
+    private static String packageOf(String classFile) {
+        int slash = classFile.lastIndexOf('/');
+        return slash < 0 ? "" : classFile.substring(0, slash).replace('/', '.');
     }
 
     private static List<File> classpath(ClassLoader loader) {

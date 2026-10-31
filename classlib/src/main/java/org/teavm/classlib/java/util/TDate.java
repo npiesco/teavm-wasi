@@ -18,8 +18,11 @@ package org.teavm.classlib.java.util;
 import java.util.TimeZone;
 import org.teavm.backend.c.intrinsic.RuntimeInclude;
 import org.teavm.classlib.PlatformDetector;
+import org.teavm.classlib.java.io.TSerializable;
+import org.teavm.classlib.java.lang.TCloneable;
 import org.teavm.classlib.java.lang.TComparable;
 import org.teavm.classlib.java.lang.TSystem;
+import org.teavm.classlib.java.text.TDateFormat;
 import org.teavm.interop.Import;
 import org.teavm.interop.NoSideEffects;
 import org.teavm.interop.Platforms;
@@ -27,7 +30,7 @@ import org.teavm.interop.Unmanaged;
 import org.teavm.interop.UnsupportedOn;
 import org.teavm.jso.core.JSDate;
 
-public class TDate implements TComparable<TDate> {
+public class TDate implements TSerializable, TCloneable, TComparable<TDate> {
     private long value;
 
     static {
@@ -449,6 +452,10 @@ public class TDate implements TComparable<TDate> {
 
     @Deprecated
     public String toLocaleString() {
+        // JDK: DateFormat.getDateTimeInstance() (MEDIUM date and time in the default locale).
+        if (PlatformDetector.isWebAssembly()) {
+            return TDateFormat.getDateTimeInstance().format(this);
+        }
         return JSDate.create(value).toLocaleFormat("%c");
     }
 

@@ -127,6 +127,7 @@ import org.teavm.model.transformation.BoundCheckInsertion;
 import org.teavm.model.transformation.ClassPatch;
 import org.teavm.model.transformation.NullCheckInsertion;
 import org.teavm.model.util.AsyncMethodFinder;
+import org.teavm.model.util.ProgramUtils;
 import org.teavm.runtime.Allocator;
 import org.teavm.runtime.CallSite;
 import org.teavm.runtime.CallSiteLocation;
@@ -293,7 +294,14 @@ public class CTarget implements TeaVMTarget, TeaVMCHost {
                 void.class)).use();
         dependencyAnalyzer.linkMethod(new MethodReference(ExceptionHandling.class,
                 "throwArrayIndexOutOfBoundsException", void.class)).use();
+        dependencyAnalyzer.linkMethod(new MethodReference(ExceptionHandling.class,
+                "throwArrayIndexOutOfBoundsException", int.class, int.class, void.class)).use();
+        dependencyAnalyzer.linkMethod(new MethodReference(ExceptionHandling.class, "throwNullPointerException",
+                String.class, void.class)).use();
         dependencyAnalyzer.linkMethod(new MethodReference(NullPointerException.class, "<init>", void.class))
+                .propagate(0, NullPointerException.class.getName())
+                .use();
+        dependencyAnalyzer.linkMethod(ProgramUtils.NPE_INIT_MESSAGE_METHOD)
                 .propagate(0, NullPointerException.class.getName())
                 .use();
 

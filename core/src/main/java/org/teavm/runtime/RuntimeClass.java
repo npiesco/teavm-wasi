@@ -24,6 +24,8 @@ public class RuntimeClass extends RuntimeObject {
     public static final int ENUM = 4;
     public static final int SYNTHETIC = 1024;
     public static final int INTERFACE = 2048;
+    // The class's java.lang.reflect.Modifier bits, as Class.getModifiers reports them, live above this shift.
+    public static final int MODIFIERS_SHIFT = 16;
 
     public static final int PRIMITIVE_SHIFT = 3;
     public static final int PRIMITIVE_MASK = 15;

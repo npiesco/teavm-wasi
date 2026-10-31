@@ -241,6 +241,12 @@ public class ProgramIO {
                         location = new TextLocation(inliningInfo.getFileName(), inliningInfo.getLine());
                         inliningInfo = inliningInfo.getParent();
                         break;
+                    case 124: {
+                        int messageIndex = data.readUnsigned();
+                        location = location.withNullMessage(messageIndex > 0 ? symbolTable.at(messageIndex - 1)
+                                : null);
+                        break;
+                    }
                     default: {
                         Instruction insn = readInstruction(insnType, program, data);
                         insn.setLocation(location);
@@ -257,6 +263,8 @@ public class ProgramIO {
     private class InstructionWriter implements InstructionReader {
         private VarDataOutput output;
         TextLocation location = TextLocation.EMPTY;
+        // The null message the reader holds: every location record clears it, record 124 sets it.
+        String readerNullMessage;
 
         InstructionWriter(VarDataOutput output) {
             this.output = output;
@@ -285,6 +293,7 @@ public class ProgramIO {
                     InliningInfo prevInlining = location.getInlining();
                     while (prevInlining != lastCommonInlining) {
                         output.writeUnsigned(126);
+                        readerNullMessage = null;
                         fileName = prevInlining.getFileName();
                         lineNumber = prevInlining.getLine();
                         prevInlining = prevInlining.getParent();
@@ -297,6 +306,7 @@ public class ProgramIO {
                         lineNumber = -1;
 
                         output.writeUnsigned(125);
+                        readerNullMessage = null;
                         MethodReference method = inlining.getMethod();
                         output.writeUnsigned(symbolTable.lookup(method.getClassName()));
                         output.writeUnsigned(symbolTable.lookup(method.getDescriptor().toString()));
@@ -304,6 +314,12 @@ public class ProgramIO {
                 }
 
                 writeSimpleLocation(fileName, lineNumber, newLocation.getFileName(), newLocation.getLine());
+                if (!Objects.equals(readerNullMessage, newLocation.getNullMessage())) {
+                    output.writeUnsigned(124);
+                    output.writeUnsigned(newLocation.getNullMessage() != null
+                            ? symbolTable.lookup(newLocation.getNullMessage()) + 1 : 0);
+                    readerNullMessage = newLocation.getNullMessage();
+                }
                 location = newLocation;
             } catch (IOException e) {
                 throw new IOExceptionWrapper(e);
@@ -315,6 +331,7 @@ public class ProgramIO {
             if (Objects.equals(fileName, newFileName) && lineNumber == newLineNumber) {
                 return;
             }
+            readerNullMessage = null;
 
             if (newFileName == null) {
                 output.writeUnsigned(1);

@@ -16,6 +16,7 @@
 package org.teavm.classlib.java.lang;
 
 import org.teavm.classlib.impl.unicode.UnicodeHelper;
+import org.teavm.classlib.java.io.TSerializable;
 import org.teavm.interop.DelegateTo;
 import org.teavm.interop.Import;
 import org.teavm.interop.Unmanaged;
@@ -23,7 +24,7 @@ import org.teavm.interop.c.Include;
 import org.teavm.platform.Platform;
 import org.teavm.platform.metadata.StringResource;
 
-public class TCharacter extends TObject implements TComparable<TCharacter> {
+public class TCharacter extends TObject implements TSerializable, TComparable<TCharacter> {
     public static final int MIN_RADIX = 2;
     public static final int MAX_RADIX = 36;
     public static final char MIN_VALUE = '\0';

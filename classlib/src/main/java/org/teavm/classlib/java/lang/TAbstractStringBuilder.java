@@ -97,44 +97,24 @@ class TAbstractStringBuilder extends TObject implements TSerializable, TCharSequ
         return insert(length, value, radix);
     }
 
+    // Digits are produced from the non-positive value, as on the JDK, so MIN_VALUE (which has no positive
+    // counterpart) is printed correctly.
     TAbstractStringBuilder insert(int target, int value, int radix) {
-        boolean positive = true;
-        if (value < 0) {
-            positive = false;
-            value = -value;
+        boolean negative = value < 0;
+        int rest = negative ? value : -value;
+        int sz = negative ? 2 : 1;
+        for (int t = rest / radix; t != 0; t /= radix) {
+            ++sz;
         }
-        if (value < radix) {
-            if (!positive) {
-                insertSpace(target, target + 2);
-                buffer[target++] = '-';
-            } else {
-                insertSpace(target, target + 1);
-            }
-            buffer[target++] = TCharacter.forDigit(value, radix);
-        } else {
-            int pos = 1;
-            int sz = 1;
-            int posLimit = TInteger.MAX_VALUE / radix;
-            while (pos * radix <= value) {
-                pos *= radix;
-                ++sz;
-                if (pos > posLimit) {
-                    break;
-                }
-            }
-            if (!positive) {
-                ++sz;
-            }
-            insertSpace(target, target + sz);
-            if (!positive) {
-                buffer[target++] = '-';
-            }
-            while (pos > 0) {
-                buffer[target++] = TCharacter.forDigit(value / pos, radix);
-                value %= pos;
-                pos /= radix;
-            }
+        insertSpace(target, target + sz);
+        if (negative) {
+            buffer[target] = '-';
         }
+        int index = target + sz;
+        do {
+            buffer[--index] = TCharacter.forDigit(-(rest % radix), radix);
+            rest /= radix;
+        } while (rest != 0);
         return this;
     }
 
@@ -147,39 +127,21 @@ class TAbstractStringBuilder extends TObject implements TSerializable, TCharSequ
     }
 
     protected TAbstractStringBuilder insert(int target, long value, int radix) {
-        boolean positive = true;
-        if (value < 0) {
-            positive = false;
-            value = -value;
+        boolean negative = value < 0;
+        long rest = negative ? value : -value;
+        int sz = negative ? 2 : 1;
+        for (long t = rest / radix; t != 0; t /= radix) {
+            ++sz;
         }
-        if (value < radix) {
-            if (!positive) {
-                insertSpace(target, target + 2);
-                buffer[target++] = '-';
-            } else {
-                insertSpace(target, target + 1);
-            }
-            buffer[target++] = Character.forDigit((int) value, radix);
-        } else {
-            int sz = 1;
-            long pos = 1;
-            while (pos * radix > pos && pos * radix <= value) {
-                pos *= radix;
-                ++sz;
-            }
-            if (!positive) {
-                ++sz;
-            }
-            insertSpace(target, target + sz);
-            if (!positive) {
-                buffer[target++] = '-';
-            }
-            while (pos > 0) {
-                buffer[target++] = TCharacter.forDigit((int) (value / pos), radix);
-                value %= pos;
-                pos /= radix;
-            }
+        insertSpace(target, target + sz);
+        if (negative) {
+            buffer[target] = '-';
         }
+        int index = target + sz;
+        do {
+            buffer[--index] = TCharacter.forDigit((int) -(rest % radix), radix);
+            rest /= radix;
+        } while (rest != 0);
         return this;
     }
 
@@ -188,13 +150,14 @@ class TAbstractStringBuilder extends TObject implements TSerializable, TCharSequ
     }
 
     protected TAbstractStringBuilder insert(int target, float value) {
-        if (value == 0) {
+        // Zero is signed: -0.0f equals 0.0f, so the sign comes from 1/value.
+        if (value == 0 && 1 / value > 0) {
             insertSpace(target, target + 3);
             buffer[target++] = '0';
             buffer[target++] = '.';
             buffer[target++] = '0';
             return this;
-        } else if (value == -0) {
+        } else if (value == 0) {
             insertSpace(target, target + 4);
             buffer[target++] = '-';
             buffer[target++] = '0';
@@ -313,13 +276,13 @@ class TAbstractStringBuilder extends TObject implements TSerializable, TCharSequ
     }
 
     protected TAbstractStringBuilder insert(int target, double value) {
-        if (value == 0) {
+        if (value == 0 && 1 / value > 0) {
             insertSpace(target, target + 3);
             buffer[target++] = '0';
             buffer[target++] = '.';
             buffer[target++] = '0';
             return this;
-        } else if (value == -0) {
+        } else if (value == 0) {
             insertSpace(target, target + 4);
             buffer[target++] = '-';
             buffer[target++] = '0';

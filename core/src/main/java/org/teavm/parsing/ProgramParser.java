@@ -333,6 +333,7 @@ public class ProgramParser {
         Map<Integer, String> accumulatedDebugNames = new HashMap<>();
         Integer lastLineNumber = null;
         TextLocation lastLocation = TextLocation.EMPTY;
+        String[] nullMessages = NullMessageBuilder.build(methodNode);
         for (int i = 0; i < basicBlocks.size(); ++i) {
             BasicBlock newBasicBlock = basicBlocks.get(i);
             if (newBasicBlock != null) {
@@ -370,8 +371,12 @@ public class ProgramParser {
                 }
             }
             if (builtInstructions != null) {
+                TextLocation location = lastLocation;
+                if (nullMessages != null && nullMessages[i] != null) {
+                    location = lastLocation.withNullMessage(nullMessages[i]);
+                }
                 for (Instruction insn : builtInstructions) {
-                    insn.setLocation(lastLocation);
+                    insn.setLocation(location);
                 }
                 basicBlock.addAll(builtInstructions);
             }
@@ -1432,12 +1437,21 @@ public class ProgramParser {
                     emitNeg(NumericOperandType.DOUBLE, a, r);
                     break;
                 }
-                case Opcodes.FCMPG:
-                case Opcodes.FCMPL: {
+                // COMPARE on floating operands is fcmpg/dcmpg (NaN compares greater); fcmpl(a, b), where NaN
+                // compares less, is -fcmpg(b, a).
+                case Opcodes.FCMPG: {
                     int b = popSingle();
                     int a = popSingle();
                     int r = pushSingle();
                     emitBinary(BinaryOperation.COMPARE, NumericOperandType.FLOAT, a, b, r);
+                    break;
+                }
+                case Opcodes.FCMPL: {
+                    int b = popSingle();
+                    int a = popSingle();
+                    int r = pushSingle();
+                    emitBinary(BinaryOperation.COMPARE, NumericOperandType.FLOAT, b, a, r);
+                    emitNeg(NumericOperandType.INT, r, r);
                     break;
                 }
                 case Opcodes.LCMP: {
@@ -1447,12 +1461,19 @@ public class ProgramParser {
                     emitBinary(BinaryOperation.COMPARE, NumericOperandType.LONG, a, b, r);
                     break;
                 }
-                case Opcodes.DCMPG:
-                case Opcodes.DCMPL: {
+                case Opcodes.DCMPG: {
                     int b = popDouble();
                     int a = popDouble();
                     int r = pushSingle();
                     emitBinary(BinaryOperation.COMPARE, NumericOperandType.DOUBLE, a, b, r);
+                    break;
+                }
+                case Opcodes.DCMPL: {
+                    int b = popDouble();
+                    int a = popDouble();
+                    int r = pushSingle();
+                    emitBinary(BinaryOperation.COMPARE, NumericOperandType.DOUBLE, b, a, r);
+                    emitNeg(NumericOperandType.INT, r, r);
                     break;
                 }
                 case Opcodes.ISHL: {

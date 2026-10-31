@@ -30,7 +30,7 @@ import org.teavm.classlib.java.util.THashMap;
 import org.teavm.classlib.java.util.TLocale;
 import org.teavm.classlib.java.util.regex.TPattern;
 
-public class TString extends TObject implements TSerializable, TComparable<TString>, TCharSequence {
+public final class TString extends TObject implements TSerializable, TComparable<TString>, TCharSequence {
     public static final TComparator<TString> CASE_INSENSITIVE_ORDER = (o1, o2) -> o1.compareToIgnoreCase(o2);
     private char[] characters;
     private transient int hashCode;

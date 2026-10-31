@@ -20,8 +20,10 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.teavm.common.IntegerArray;
@@ -32,6 +34,9 @@ public final class UnicodeSupport {
     private static int[] digitValues;
     private static byte[] classes;
     private static int[] titleCaseMapping;
+    private static int[] combiningClasses;
+    private static int[] decompositions;
+    private static int[] compositions;
     private static Map<String, Byte> classMap = new HashMap<>();
 
     static {
@@ -74,6 +79,8 @@ public final class UnicodeSupport {
         IntegerArray digitValues = new IntegerArray(4096);
         IntegerArray classes = new IntegerArray(65536);
         IntegerArray titleCaseMapping = new IntegerArray(256);
+        IntegerArray combiningClasses = new IntegerArray(2048);
+        IntegerArray decompositions = new IntegerArray(16384);
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(UnicodeHelper.class
                 .getResourceAsStream("UnicodeData.txt")))) {
             while (true) {
@@ -86,13 +93,23 @@ public final class UnicodeSupport {
                 }
                 String[] fields = splitLine(line);
                 int charCode = parseHex(fields[0]);
+                // A "<..., Last>" entry closes a range whose code points all share the "<..., First>" properties.
+                int gapClass = fields[1].endsWith(", Last>") ? classes.get(classes.size() - 1) : 0;
                 while (classes.size() < charCode) {
-                    classes.add(0);
+                    classes.add(gapClass);
                 }
                 if (!fields[6].isEmpty()) {
                     int digit = Integer.parseInt(fields[6]);
                     digitValues.add(charCode);
                     digitValues.add(digit);
+                }
+                int combiningClass = Integer.parseInt(fields[3]);
+                if (combiningClass != 0) {
+                    combiningClasses.add(charCode);
+                    combiningClasses.add(combiningClass);
+                }
+                if (!fields[5].isEmpty()) {
+                    addDecomposition(decompositions, charCode, fields[5]);
                 }
                 Byte charClass = classMap.get(fields[2]);
                 classes.add(charClass != null ? charClass.intValue() : 0);
@@ -131,6 +148,67 @@ public final class UnicodeSupport {
             UnicodeSupport.classes[i] = (byte) classes.get(i);
         }
         UnicodeSupport.titleCaseMapping = titleCaseMapping.getAll();
+        UnicodeSupport.combiningClasses = combiningClasses.getAll();
+        UnicodeSupport.decompositions = decompositions.getAll();
+        UnicodeSupport.compositions = primaryComposites(UnicodeSupport.decompositions,
+                UnicodeSupport.combiningClasses, readCompositionExclusions());
+    }
+
+    // Each entry is: code point, (mapping length << 1) | 1 for a compatibility mapping, then the mapping.
+    private static void addDecomposition(IntegerArray target, int charCode, String field) {
+        boolean compatibility = field.startsWith("<");
+        String mapping = compatibility ? field.substring(field.indexOf('>') + 1).trim() : field;
+        String[] parts = mapping.split(" ");
+        target.add(charCode);
+        target.add(parts.length << 1 | (compatibility ? 1 : 0));
+        for (String part : parts) {
+            target.add(parseHex(part));
+        }
+    }
+
+    // Triples (first, second, composite) for the primary composites that NFC recomposes: every canonical
+    // decomposition except those with Full_Composition_Exclusion (UAX #15): singletons, non-starter
+    // decompositions, and the code points listed in CompositionExclusions.txt.
+    private static int[] primaryComposites(int[] decompositions, int[] combiningClasses, Set<Integer> excluded) {
+        Set<Integer> nonStarters = new HashSet<>();
+        for (int i = 0; i < combiningClasses.length; i += 2) {
+            nonStarters.add(combiningClasses[i]);
+        }
+        IntegerArray result = new IntegerArray(4096);
+        for (int i = 0; i < decompositions.length;) {
+            int charCode = decompositions[i];
+            int header = decompositions[i + 1];
+            int length = header >> 1;
+            if ((header & 1) == 0 && length == 2 && !excluded.contains(charCode)
+                    && !nonStarters.contains(charCode) && !nonStarters.contains(decompositions[i + 2])) {
+                result.add(decompositions[i + 2]);
+                result.add(decompositions[i + 3]);
+                result.add(charCode);
+            }
+            i += 2 + length;
+        }
+        return result.getAll();
+    }
+
+    private static Set<Integer> readCompositionExclusions() {
+        Set<Integer> result = new HashSet<>();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(UnicodeHelper.class
+                .getResourceAsStream("CompositionExclusions.txt")))) {
+            while (true) {
+                String line = reader.readLine();
+                if (line == null) {
+                    break;
+                }
+                int comment = line.indexOf('#');
+                String code = (comment >= 0 ? line.substring(0, comment) : line).trim();
+                if (!code.isEmpty()) {
+                    result.add(parseHex(code));
+                }
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("Error reading composition exclusions", e);
+        }
+        return result;
     }
 
     private static String[] splitLine(String line) {
@@ -215,5 +293,20 @@ public final class UnicodeSupport {
     public static int[] getTitleCaseMapping() {
         ensureUnicodeData();
         return titleCaseMapping;
+    }
+
+    public static int[] getCombiningClasses() {
+        ensureUnicodeData();
+        return combiningClasses;
+    }
+
+    public static int[] getDecompositions() {
+        ensureUnicodeData();
+        return decompositions;
+    }
+
+    public static int[] getCompositions() {
+        ensureUnicodeData();
+        return compositions;
     }
 }

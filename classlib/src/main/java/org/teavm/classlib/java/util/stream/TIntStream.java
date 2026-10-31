@@ -42,7 +42,7 @@ import org.teavm.classlib.java.util.stream.intimpl.TSingleIntStreamImpl;
 import org.teavm.classlib.java.util.stream.intimpl.TSpecializedConcatIntStream;
 
 public interface TIntStream extends TBaseStream<Integer, TIntStream> {
-    interface Builder {
+    interface Builder extends IntConsumer {
         void accept(int t);
 
         default Builder add(int t) {

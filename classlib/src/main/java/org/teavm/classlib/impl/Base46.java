@@ -98,7 +98,7 @@ public final class Base46 {
     }
 
     public static long decodeLong(CharFlow seq) {
-        long number = decodeUnsigned(seq);
+        long number = decodeUnsignedLong(seq);
         long result = number / 2;
         if (number % 2 != 0) {
             result = -result;

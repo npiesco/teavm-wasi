@@ -343,6 +343,21 @@ public class Parser {
                         cls.setOwnerName(cls.getDeclaringClassName());
                     }
                     cls.setSimpleName(innerClassNode.innerName);
+                    // As Class.getModifiers in the JDK, a member class's access and static-ness come from its
+                    // InnerClasses entry; the class file's own flags can only say public or package-private.
+                    int access = innerClassNode.access;
+                    if ((access & Opcodes.ACC_PRIVATE) != 0) {
+                        cls.setLevel(AccessLevel.PRIVATE);
+                    } else if ((access & Opcodes.ACC_PROTECTED) != 0) {
+                        cls.setLevel(AccessLevel.PROTECTED);
+                    } else if ((access & Opcodes.ACC_PUBLIC) != 0) {
+                        cls.setLevel(AccessLevel.PUBLIC);
+                    } else {
+                        cls.setLevel(AccessLevel.PACKAGE_PRIVATE);
+                    }
+                    if ((access & Opcodes.ACC_STATIC) != 0) {
+                        cls.getModifiers().add(ElementModifier.STATIC);
+                    }
                     break;
                 }
             }

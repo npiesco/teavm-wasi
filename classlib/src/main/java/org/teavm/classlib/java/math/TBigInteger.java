@@ -15,7 +15,6 @@
  */
 package org.teavm.classlib.java.math;
 
-import java.io.Serializable;
 import java.util.Random;
 
 /**
@@ -32,7 +31,7 @@ import java.util.Random;
  * discouraged. In simple words: Do NOT implement any bit fields based on
  * BigInteger.
  */
-public class TBigInteger extends Number implements Comparable<TBigInteger>, Serializable {
+public class TBigInteger extends Number implements Comparable<TBigInteger> {
 
     /** This is the serialVersionUID used by the sun implementation. */
     private static final long serialVersionUID = -8287574255936472291L;

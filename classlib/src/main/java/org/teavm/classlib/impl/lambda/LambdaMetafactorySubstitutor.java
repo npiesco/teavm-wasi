@@ -189,7 +189,11 @@ public class LambdaMetafactorySubstitutor implements BootstrapMethodSubstitutor 
             String primitiveClass = ((ValueType.Object) to).getClassName();
             PrimitiveType toType = getWrappedPrimitive(primitiveClass);
             if (toType == null) {
-                return arg;
+                // As the JDK's LambdaMetafactory: box to the primitive's own wrapper, which widens to the
+                // reference type (Object, Number, Comparable, ...).
+                PrimitiveType fromType = ((ValueType.Primitive) from).getKind();
+                ValueType wrapper = ValueType.object(wrapperName(fromType));
+                return arg.getProgramEmitter().invoke(wrapperName(fromType), "valueOf", wrapper, arg);
             }
             arg = tryConvertArgument(arg, from, ValueType.primitive(toType));
             return arg.getProgramEmitter().invoke(primitiveClass, "valueOf", to, arg);
@@ -197,12 +201,36 @@ public class LambdaMetafactorySubstitutor implements BootstrapMethodSubstitutor 
             String primitiveClass = ((ValueType.Object) from).getClassName();
             PrimitiveType fromType = getWrappedPrimitive(primitiveClass);
             if (fromType == null) {
-                return arg;
+                // A reference that is not a wrapper must hold the target primitive's wrapper.
+                PrimitiveType toType = ((ValueType.Primitive) to).getKind();
+                return arg.cast(ValueType.object(wrapperName(toType)))
+                        .invokeVirtual(primitiveName(toType) + "Value", to);
             }
             arg = arg.invokeVirtual(primitiveName(fromType) + "Value", ValueType.primitive(fromType));
             return tryConvertArgument(arg, ValueType.primitive(fromType), to);
         } else {
             return arg.cast(to);
+        }
+    }
+
+    private static String wrapperName(PrimitiveType type) {
+        switch (type) {
+            case BOOLEAN:
+                return "java.lang.Boolean";
+            case BYTE:
+                return "java.lang.Byte";
+            case SHORT:
+                return "java.lang.Short";
+            case CHARACTER:
+                return "java.lang.Character";
+            case INTEGER:
+                return "java.lang.Integer";
+            case LONG:
+                return "java.lang.Long";
+            case FLOAT:
+                return "java.lang.Float";
+            default:
+                return "java.lang.Double";
         }
     }
 

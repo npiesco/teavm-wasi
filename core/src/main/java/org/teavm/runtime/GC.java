@@ -405,10 +405,47 @@ public final class GC {
 
     private static boolean markObjectData(RuntimeObject object) {
         RuntimeClass cls = RuntimeClass.getClass(object);
+        boolean hasObjectsFromYoungGen = markHeaderMonitor(object);
         if (cls.itemType == null) {
-            return markObject(cls, object);
+            return markObject(cls, object) | hasObjectsFromYoungGen;
         } else {
-            return markArray(cls, (RuntimeArray) object);
+            return markArray(cls, (RuntimeArray) object) | hasObjectsFromYoungGen;
+        }
+    }
+
+    // The second header word holds either the identity hash code or, with MONITOR_BIT set, a reference to the
+    // object's java.lang.Object monitor, packed as its heap offset in words (as the backends encode Object.monitor).
+    // That reference is reachable only through the header, so it is traced here.
+    private static final int MONITOR_BIT = 0x80000000;
+
+    private static boolean markHeaderMonitor(RuntimeObject object) {
+        int header = object.hashCode;
+        if ((header & MONITOR_BIT) == 0) {
+            return false;
+        }
+        return enqueueMark(unpackMonitor(header).toStructure());
+    }
+
+    private static Address unpackMonitor(int header) {
+        return heapAddress().add(((long) (header & 0x7FFFFFFF)) << 2);
+    }
+
+    private static int packMonitor(Address monitor) {
+        return (int) ((monitor.toLong() - heapAddress().toLong()) >>> 2) | MONITOR_BIT;
+    }
+
+    // A relocated object's header holds relocation data until restoreObjectHeaders, so its monitor word is in the
+    // relocation's sizeBackup.
+    private static void updateHeaderMonitor(RuntimeObject object, Relocation relocation) {
+        int header = relocation != null ? relocation.sizeBackup : object.hashCode;
+        if ((header & MONITOR_BIT) == 0) {
+            return;
+        }
+        int updated = packMonitor(updatePointer(unpackMonitor(header)));
+        if (relocation != null) {
+            relocation.sizeBackup = updated;
+        } else {
+            object.hashCode = updated;
         }
     }
 
@@ -961,6 +998,7 @@ public final class GC {
                 RuntimeClass cls = RuntimeClass.unpack(classRef);
                 RuntimeObject realObject = object.toAddress().toStructure();
                 updatePointers(cls, realObject);
+                updateHeaderMonitor(realObject, relocation);
                 size = objectSize(realObject, cls);
             } else {
                 size = object.size;
@@ -1027,6 +1065,7 @@ public final class GC {
                 }
                 RuntimeClass cls = RuntimeClass.unpack(classRef);
                 updatePointers(cls, object.toAddress().toStructure());
+                updateHeaderMonitor(object.toAddress().toStructure(), relocation);
                 size = objectSize(object.toAddress().toStructure(), cls);
             } else {
                 size = object.size;

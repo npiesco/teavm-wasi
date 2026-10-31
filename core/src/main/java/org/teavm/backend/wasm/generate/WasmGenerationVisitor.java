@@ -121,6 +121,7 @@ import org.teavm.model.TextLocation;
 import org.teavm.model.ValueType;
 import org.teavm.model.classes.VirtualTable;
 import org.teavm.runtime.Allocator;
+import org.teavm.runtime.ExceptionHandling;
 import org.teavm.runtime.RuntimeArray;
 import org.teavm.runtime.RuntimeClass;
 import org.teavm.runtime.ShadowStack;
@@ -135,6 +136,8 @@ class WasmGenerationVisitor implements StatementVisitor, ExprVisitor {
     private static final MethodReference MONITOR_EXIT = new MethodReference(Object.class,
             "monitorExit", Object.class, void.class);
     private static final int SWITCH_TABLE_THRESHOLD = 256;
+    static final MethodReference THROW_CLASS_CAST = new MethodReference(ExceptionHandling.class,
+            "throwClassCastException", void.class);
     private WasmGenerationContext context;
     private WasmClassGenerator classGenerator;
     private WasmTypeInference typeInference;
@@ -149,6 +152,7 @@ class WasmGenerationVisitor implements StatementVisitor, ExprVisitor {
     private WasmLocal stackVariable;
     private BinaryWriter binaryWriter;
     private boolean async;
+    private boolean managed = true;
     WasmExpression result;
 
     WasmGenerationVisitor(WasmGenerationContext context, WasmClassGenerator classGenerator,
@@ -526,6 +530,8 @@ class WasmGenerationVisitor implements StatementVisitor, ExprVisitor {
                 default:
                     throw new AssertionError(type.toString());
             }
+        } else if (isMonitorField(field)) {
+            resultExpr = new WasmStoreInt32(4, address, packMonitor(result), WasmInt32Subtype.INT32);
         } else {
             resultExpr = new WasmStoreInt32(4, address, result, WasmInt32Subtype.INT32);
         }
@@ -1176,6 +1182,59 @@ class WasmGenerationVisitor implements StatementVisitor, ExprVisitor {
 
         resultExpr.setOffset(getOffset(expr.getQualified(), expr.getField()));
         result = (WasmExpression) resultExpr;
+        if (isMonitorField(expr.getField())) {
+            result = unpackMonitor(result);
+        }
+    }
+
+    // Object.monitor shares the object header word with the identity hash code (RuntimeObject.hashCode). As on the C
+    // backend (TEAVM_PACK_MONITOR) and as GC expects, a monitor is stored as its heap offset in words with
+    // 0x80000000 set; anything without that bit is a hash code, which reads back as no monitor. Without this, a stored
+    // hash code was taken for a monitor pointer.
+    private static boolean isMonitorField(FieldReference field) {
+        return field.getClassName().equals("java.lang.Object") && field.getFieldName().equals("monitor");
+    }
+
+    private WasmExpression packMonitor(WasmExpression reference) {
+        WasmLocal tmp = getTemporary(WasmType.INT32);
+        WasmBlock block = new WasmBlock(false);
+        block.setType(WasmType.INT32);
+        block.getBody().add(new WasmSetLocal(tmp, reference));
+        WasmExpression offset = new WasmIntBinary(WasmIntType.INT32, WasmIntBinaryOperation.SUB,
+                new WasmGetLocal(tmp), heapAddress());
+        WasmExpression shifted = new WasmIntBinary(WasmIntType.INT32, WasmIntBinaryOperation.SHR_UNSIGNED,
+                offset, new WasmInt32Constant(2));
+        WasmExpression packed = new WasmIntBinary(WasmIntType.INT32, WasmIntBinaryOperation.OR, shifted,
+                new WasmInt32Constant(0x80000000));
+        WasmExpression isNull = new WasmIntBinary(WasmIntType.INT32, WasmIntBinaryOperation.EQ,
+                new WasmGetLocal(tmp), new WasmInt32Constant(0));
+        // null stores 0; otherwise the packed pointer.
+        block.getBody().add(new WasmIntBinary(WasmIntType.INT32, WasmIntBinaryOperation.AND, packed,
+                new WasmIntBinary(WasmIntType.INT32, WasmIntBinaryOperation.SUB, isNull, new WasmInt32Constant(1))));
+        releaseTemporary(tmp);
+        return block;
+    }
+
+    private WasmExpression heapAddress() {
+        int field = classGenerator.getFieldOffset(new FieldReference(WasmHeap.class.getName(), "heapAddress"));
+        return new WasmLoadInt32(4, new WasmInt32Constant(field), WasmInt32Subtype.INT32);
+    }
+
+    private WasmExpression unpackMonitor(WasmExpression value) {
+        WasmLocal tmp = getTemporary(WasmType.INT32);
+        WasmBlock block = new WasmBlock(false);
+        block.setType(WasmType.INT32);
+        block.getBody().add(new WasmSetLocal(tmp, value));
+        // heapAddress + (value << 2) when the monitor bit is set (value >> 31 is then all ones), else 0. The shift
+        // drops the monitor bit; word offsets in a 32-bit heap never reach bit 30.
+        WasmExpression address = new WasmIntBinary(WasmIntType.INT32, WasmIntBinaryOperation.ADD, heapAddress(),
+                new WasmIntBinary(WasmIntType.INT32, WasmIntBinaryOperation.SHL, new WasmGetLocal(tmp),
+                        new WasmInt32Constant(2)));
+        WasmExpression mask = new WasmIntBinary(WasmIntType.INT32, WasmIntBinaryOperation.SHR_SIGNED,
+                new WasmGetLocal(tmp), new WasmInt32Constant(31));
+        block.getBody().add(new WasmIntBinary(WasmIntType.INT32, WasmIntBinaryOperation.AND, address, mask));
+        releaseTemporary(tmp);
+        return block;
     }
 
     private WasmExpression getAddress(Expr qualified, FieldReference field, TextLocation location) {
@@ -1368,13 +1427,19 @@ class WasmGenerationVisitor implements StatementVisitor, ExprVisitor {
         ifNull.setResult(new WasmInt32Constant(0));
         block.getBody().add(new WasmDrop(ifNull));
 
-        WasmCall supertypeCall = new WasmCall(context.names.forSupertypeFunction(expr.getType()));
-        WasmExpression classRef = new WasmLoadInt32(4, result, WasmInt32Subtype.INT32);
-        classRef = new WasmIntBinary(WasmIntType.INT32, WasmIntBinaryOperation.SHL, classRef, new WasmInt32Constant(3));
-        supertypeCall.getArguments().add(classRef);
-        block.getBody().add(supertypeCall);
+        block.getBody().add(supertypeCall(expr.getType(), objectVar));
+        releaseTemporary(objectVar);
 
         result = block;
+    }
+
+    // Whether the class of the non-null object in objectVar is a subtype of type.
+    private WasmCall supertypeCall(ValueType type, WasmLocal objectVar) {
+        WasmCall supertypeCall = new WasmCall(context.names.forSupertypeFunction(type));
+        WasmExpression classRef = new WasmLoadInt32(4, new WasmGetLocal(objectVar), WasmInt32Subtype.INT32);
+        classRef = new WasmIntBinary(WasmIntType.INT32, WasmIntBinaryOperation.SHL, classRef, new WasmInt32Constant(3));
+        supertypeCall.getArguments().add(classRef);
+        return supertypeCall;
     }
 
     @Override
@@ -1389,9 +1454,50 @@ class WasmGenerationVisitor implements StatementVisitor, ExprVisitor {
         result = block;
     }
 
+    // As the C backend's teavm_checkcast: a reference cast to a managed type throws ClassCastException unless the
+    // value is null or an instance. The cast is a call site, so the handler dispatch follows it.
     @Override
     public void visit(CastExpr expr) {
         accept(expr.getValue());
+        ValueType target = expr.getTarget();
+        if (!managed || target instanceof ValueType.Primitive) {
+            return;
+        }
+        if (target instanceof ValueType.Object) {
+            String className = ((ValueType.Object) target).getClassName();
+            if (className.equals("java.lang.Object") || !context.getCharacteristics().isManaged(className)) {
+                return;
+            }
+        }
+        classGenerator.getClassPointer(target);
+
+        WasmBlock block = new WasmBlock(false);
+        block.setType(WasmType.INT32);
+        block.setLocation(expr.getLocation());
+
+        WasmLocal objectVar = getTemporary(WasmType.INT32);
+        block.getBody().add(new WasmSetLocal(objectVar, result));
+
+        WasmBranch ifNull = new WasmBranch(new WasmIntBinary(WasmIntType.INT32, WasmIntBinaryOperation.EQ,
+                new WasmGetLocal(objectVar), new WasmInt32Constant(0)), block);
+        ifNull.setResult(new WasmGetLocal(objectVar));
+        block.getBody().add(new WasmDrop(ifNull));
+
+        WasmBranch ifInstance = new WasmBranch(supertypeCall(target, objectVar), block);
+        ifInstance.setResult(new WasmGetLocal(objectVar));
+        block.getBody().add(new WasmDrop(ifInstance));
+
+        WasmCall throwCall = new WasmCall(context.names.forMethod(THROW_CLASS_CAST));
+        throwCall.setLocation(expr.getLocation());
+        block.getBody().add(throwCall);
+        block.getBody().add(new WasmGetLocal(objectVar));
+        releaseTemporary(objectVar);
+
+        result = block;
+    }
+
+    public void setManaged(boolean managed) {
+        this.managed = managed;
     }
 
     @Override
@@ -1468,10 +1574,12 @@ class WasmGenerationVisitor implements StatementVisitor, ExprVisitor {
                 return new WasmIntBinary(binary.getType(), negatedOp, binary.getFirst(), binary.getSecond());
             }
         } else if (expr instanceof WasmFloatBinary) {
+            // Only equality can be negated by swapping the operation: with a NaN operand every ordering comparison is
+            // false, so !(a < b) is not a >= b.
             WasmFloatBinary binary = (WasmFloatBinary) expr;
-            WasmFloatBinaryOperation negatedOp = negate(binary.getOperation());
-            if (negatedOp != null) {
-                return new WasmFloatBinary(binary.getType(), negatedOp, binary.getFirst(), binary.getSecond());
+            WasmFloatBinaryOperation op = binary.getOperation();
+            if (op == WasmFloatBinaryOperation.EQ || op == WasmFloatBinaryOperation.NE) {
+                return new WasmFloatBinary(binary.getType(), negate(op), binary.getFirst(), binary.getSecond());
             }
         }
 
@@ -1574,22 +1682,7 @@ class WasmGenerationVisitor implements StatementVisitor, ExprVisitor {
     }
 
     private WasmFloatBinaryOperation negate(WasmFloatBinaryOperation op) {
-        switch (op) {
-            case EQ:
-                return WasmFloatBinaryOperation.NE;
-            case NE:
-                return WasmFloatBinaryOperation.EQ;
-            case LT:
-                return WasmFloatBinaryOperation.GE;
-            case LE:
-                return WasmFloatBinaryOperation.GT;
-            case GT:
-                return WasmFloatBinaryOperation.LE;
-            case GE:
-                return WasmFloatBinaryOperation.LT;
-            default:
-                return null;
-        }
+        return op == WasmFloatBinaryOperation.EQ ? WasmFloatBinaryOperation.NE : WasmFloatBinaryOperation.EQ;
     }
 
     private WasmIntrinsicManager intrinsicManager = new WasmIntrinsicManager() {

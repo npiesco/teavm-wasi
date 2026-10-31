@@ -19,11 +19,15 @@ public class TIllegalFormatPrecisionException extends TIllegalFormatException {
     private int precision;
 
     public TIllegalFormatPrecisionException(int precision) {
-        super("Illegal precision: " + precision);
         this.precision = precision;
     }
 
     public int getPrecision() {
         return precision;
+    }
+
+    @Override
+    public String getMessage() {
+        return Integer.toString(precision);
     }
 }

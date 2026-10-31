@@ -19,11 +19,18 @@ public class TMissingFormatWidthException extends TIllegalFormatException {
     private String formatSpecifier;
 
     public TMissingFormatWidthException(String formatSpecifier) {
-        super("Missing format with for specifier " + formatSpecifier);
+        if (formatSpecifier == null) {
+            throw new NullPointerException();
+        }
         this.formatSpecifier = formatSpecifier;
     }
 
     public String getFormatSpecifier() {
+        return formatSpecifier;
+    }
+
+    @Override
+    public String getMessage() {
         return formatSpecifier;
     }
 }

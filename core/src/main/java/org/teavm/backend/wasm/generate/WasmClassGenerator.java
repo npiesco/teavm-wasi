@@ -17,6 +17,7 @@ package org.teavm.backend.wasm.generate;
 
 import com.carrotsearch.hppc.ObjectIntHashMap;
 import com.carrotsearch.hppc.ObjectIntMap;
+import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -180,6 +181,7 @@ public class WasmClassGenerator {
                     // pooled String whose header points at java.lang.String's class record, so it can only be
                     // created once this record (possibly java.lang.String itself) has an address.
                     binaryData.data.setAddress(CLASS_NAME, stringPool.getStringPointer(className));
+                    writeMetadata(binaryData, className);
                 }
             }
         } else if (type instanceof ValueType.Array) {
@@ -263,6 +265,79 @@ public class WasmClassGenerator {
         return value;
     }
 
+    // java.lang.reflect.Modifier bits of a class as Class.getModifiers reports them.
+    private static int classModifiers(ClassReader cls) {
+        int modifiers = 0;
+        switch (cls.getLevel()) {
+            case PUBLIC:
+                modifiers |= Modifier.PUBLIC;
+                break;
+            case PROTECTED:
+                modifiers |= Modifier.PROTECTED;
+                break;
+            case PRIVATE:
+                modifiers |= Modifier.PRIVATE;
+                break;
+            default:
+                break;
+        }
+        if (cls.hasModifier(ElementModifier.STATIC)) {
+            modifiers |= Modifier.STATIC;
+        }
+        if (cls.hasModifier(ElementModifier.FINAL)) {
+            modifiers |= Modifier.FINAL;
+        }
+        if (cls.hasModifier(ElementModifier.INTERFACE)) {
+            modifiers |= Modifier.INTERFACE;
+        }
+        if (cls.hasModifier(ElementModifier.ABSTRACT)) {
+            modifiers |= Modifier.ABSTRACT;
+        }
+        if (cls.hasModifier(ElementModifier.SYNTHETIC)) {
+            modifiers |= 0x1000;
+        }
+        if (cls.hasModifier(ElementModifier.ANNOTATION)) {
+            modifiers |= 0x2000;
+        }
+        if (cls.hasModifier(ElementModifier.ENUM)) {
+            modifiers |= 0x4000;
+        }
+        return modifiers;
+    }
+
+    // Metadata that refers to other class records or pooled strings is written once this record has an address:
+    // resolving one may emit a record that points back here (a pooled String points at java.lang.String's record).
+    private void writeMetadata(ClassBinaryData binaryData, String name) {
+        ClassMetadataRequirements.Info requirements = metadataRequirements.getInfo(name);
+        DataValue header = binaryData.data;
+        ClassReader cls = processedClassSource.get(name);
+        if (cls != null) {
+            if (requirements.simpleName()) {
+                // A top-level class's simple name is its binary name after the package, $ included, as in the JDK.
+                String simpleName = cls.getSimpleName();
+                if (simpleName == null && cls.getOwnerName() == null) {
+                    simpleName = cls.getName().substring(cls.getName().lastIndexOf('.') + 1);
+                }
+                if (simpleName != null) {
+                    header.setAddress(CLASS_SIMPLE_NAME, stringPool.getStringPointer(simpleName));
+                }
+            }
+
+            if (cls.getOwnerName() != null && processedClassSource.get(cls.getOwnerName()) != null
+                    && requirements.enclosingClass()) {
+                header.setAddress(CLASS_ENCLOSING_CLASS, getClassPointer(ValueType.object(cls.getOwnerName())));
+            }
+            if (cls.getDeclaringClassName() != null && processedClassSource.get(cls.getDeclaringClassName()) != null
+                    && requirements.declaringClass()) {
+                header.setAddress(CLASS_DECLARING_CLASS,
+                        getClassPointer(ValueType.object(cls.getDeclaringClassName())));
+            }
+            if (requirements.interfaces()) {
+                writeInterfaces(cls, header);
+            }
+        }
+    }
+
     // Direct superinterfaces, for Class.getInterfaces. Pointers are resolved before the table is appended because
     // resolving one may emit that interface's own record.
     private void writeInterfaces(ClassReader cls, DataValue header) {
@@ -326,25 +401,6 @@ public class WasmClassGenerator {
 
         ClassReader cls = processedClassSource.get(name);
 
-        if (cls != null) {
-            if (cls.getSimpleName() != null && requirements.simpleName()) {
-                header.setAddress(CLASS_SIMPLE_NAME, stringPool.getStringPointer(cls.getSimpleName()));
-            }
-
-            if (cls.getOwnerName() != null && processedClassSource.get(cls.getOwnerName()) != null
-                    && requirements.enclosingClass()) {
-                header.setAddress(CLASS_ENCLOSING_CLASS, getClassPointer(ValueType.object(cls.getOwnerName())));
-            }
-            if (cls.getDeclaringClassName() != null && processedClassSource.get(cls.getDeclaringClassName()) != null
-                    && requirements.declaringClass()) {
-                header.setAddress(CLASS_DECLARING_CLASS,
-                        getClassPointer(ValueType.object(cls.getDeclaringClassName())));
-            }
-            if (requirements.interfaces()) {
-                writeInterfaces(cls, header);
-            }
-        }
-
         if (vtable != null) {
             fillVirtualTable(vtable, array);
         }
@@ -377,6 +433,7 @@ public class WasmClassGenerator {
             if (cls.hasModifier(ElementModifier.INTERFACE)) {
                 flags |= RuntimeClass.INTERFACE;
             }
+            flags |= classModifiers(cls) << RuntimeClass.MODIFIERS_SHIFT;
         }
 
         if (cls != null && binaryData.start >= 0

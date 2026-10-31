@@ -16,8 +16,11 @@
 package org.teavm.classlib.impl;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -34,10 +37,12 @@ import org.teavm.model.ClassHolder;
 import org.teavm.model.ClassReader;
 import org.teavm.model.ElementModifier;
 import org.teavm.model.FieldReader;
+import org.teavm.model.MemberReader;
 import org.teavm.model.MethodHolder;
 import org.teavm.model.MethodReader;
 import org.teavm.model.MethodReference;
 import org.teavm.model.ValueType;
+import org.teavm.model.emit.ChooseEmitter;
 import org.teavm.model.emit.ProgramEmitter;
 import org.teavm.model.emit.ValueEmitter;
 import org.teavm.model.lowlevel.Characteristics;
@@ -116,10 +121,16 @@ public class ReflectionWasmSupport extends AbstractDependencyListener {
     private final Map<String, List<MethodReader>> methods = new LinkedHashMap<>();
     private final Map<MethodReference, MethodDependency> classResults = new LinkedHashMap<>();
     private MethodDependency invokeDep;
-    private final List<String> receivers = new ArrayList<>();
+    // Receiver classes that reached Method.invoke, indexed by each of their supertypes (arrays under Object).
+    private final Map<String, List<String>> receiversBySupertype = new HashMap<>();
     private final Set<MethodReference> dispatched = new HashSet<>();
     private MethodDependency newDefaultDep;
-    private static final int SHARD_SIZE = 64;
+    // Reflected members per dispatcher shard: register allocation and shadow-stack lowering are super-linear in a
+    // method's size, so shards are sized by the members they dispatch, not by how many classes declare them.
+    private static final int SHARD_MEMBERS = 128;
+    private static final MethodReference BUCKET = new MethodReference(ReflectionBuckets.class.getName(), "bucket",
+            CLASS, ValueType.INTEGER, ValueType.INTEGER);
+    private final Map<Object, int[]> memberTotals = new IdentityHashMap<>();
     private final Map<MethodReference, Map<String, ? extends List<?>>> memberMaps = new LinkedHashMap<>();
     private final Map<MethodReference, MethodDependency> reachedSharded = new LinkedHashMap<>();
     private final Map<MethodReference, List<MethodReference>> shards = new LinkedHashMap<>();
@@ -146,6 +157,9 @@ public class ReflectionWasmSupport extends AbstractDependencyListener {
         if (memberMaps.containsKey(method.getReference())) {
             reachedSharded.put(method.getReference(), method);
             ensureShards(agent);
+            MethodDependency bucket = agent.linkMethod(BUCKET);
+            bucket.getVariable(1).propagate(agent.getType("java.lang.Class"));
+            bucket.use();
         }
         // What the generated bodies produce must flow during analysis: completion can't link new classes.
         if (method.getReference().equals(NEW_INSTANCE)) {
@@ -199,11 +213,11 @@ public class ReflectionWasmSupport extends AbstractDependencyListener {
             List<MethodReader> declared = new ArrayList<>();
             for (MethodReader candidate : cls.getMethods()) {
                 if (candidate.getName().equals("<init>") && characteristics.isManaged(candidate.getReference())
-                        && parametersResolve(agent, candidate)) {
+                        && parametersResolve(agent, candidate) && reflectable(name, candidate)) {
                     declared.add(candidate);
                 }
             }
-            constructors.put(name, declared);
+            record(constructors, name, declared);
             ensureShards(agent);
             // Everything the generated bodies reference has to be linked before completion.
             agent.linkClass(name);
@@ -321,6 +335,91 @@ public class ReflectionWasmSupport extends AbstractDependencyListener {
         }
     }
 
+    // Which members of a class correspond to members of the same class on a JVM. org.teavm.* is the compiler's
+    // runtime, absent from a JVM program's classpath. java.* can only be the emulated JDK (a JVM lets no other
+    // definer into java.*), whose members are TeaVM's implementation: a member mirrors the JDK exactly when the
+    // JDK the compiler runs on declares it, as public or protected API, with the same signature.
+    private static boolean reflectable(String owner, MemberReader member) {
+        if (owner.startsWith("org.teavm.")) {
+            return false;
+        }
+        return !owner.startsWith("java.") || jdkDeclaresApi(owner, member);
+    }
+
+    private static boolean jdkDeclaresApi(String owner, MemberReader member) {
+        Class<?> cls = hostClass(ValueType.object(owner));
+        if (cls == null) {
+            return false;
+        }
+        int modifiers;
+        try {
+            if (member instanceof FieldReader) {
+                java.lang.reflect.Field field = cls.getDeclaredField(member.getName());
+                if (field.getType() != hostClass(((FieldReader) member).getType())) {
+                    return false;
+                }
+                modifiers = field.getModifiers();
+            } else {
+                MethodReader method = (MethodReader) member;
+                ValueType[] parameters = method.getParameterTypes();
+                Class<?>[] hostParameters = new Class<?>[parameters.length];
+                for (int i = 0; i < parameters.length; ++i) {
+                    hostParameters[i] = hostClass(parameters[i]);
+                    if (hostParameters[i] == null) {
+                        return false;
+                    }
+                }
+                if (method.getName().equals("<init>")) {
+                    modifiers = cls.getDeclaredConstructor(hostParameters).getModifiers();
+                } else {
+                    java.lang.reflect.Method hostMethod = cls.getDeclaredMethod(method.getName(), hostParameters);
+                    if (hostMethod.getReturnType() != hostClass(method.getResultType())) {
+                        return false;
+                    }
+                    modifiers = hostMethod.getModifiers();
+                }
+            }
+        } catch (NoSuchFieldException | NoSuchMethodException e) {
+            return false;
+        }
+        return java.lang.reflect.Modifier.isPublic(modifiers) || java.lang.reflect.Modifier.isProtected(modifiers);
+    }
+
+    private static Class<?> hostClass(ValueType type) {
+        if (type instanceof ValueType.Primitive) {
+            switch (((ValueType.Primitive) type).getKind()) {
+                case BOOLEAN:
+                    return boolean.class;
+                case BYTE:
+                    return byte.class;
+                case SHORT:
+                    return short.class;
+                case CHARACTER:
+                    return char.class;
+                case INTEGER:
+                    return int.class;
+                case LONG:
+                    return long.class;
+                case FLOAT:
+                    return float.class;
+                default:
+                    return double.class;
+            }
+        }
+        if (type == ValueType.VOID) {
+            return void.class;
+        }
+        if (type instanceof ValueType.Array) {
+            Class<?> item = hostClass(((ValueType.Array) type).getItemType());
+            return item == null ? null : java.lang.reflect.Array.newInstance(item, 0).getClass();
+        }
+        try {
+            return Class.forName(((ValueType.Object) type).getClassName(), false, null);
+        } catch (ClassNotFoundException | LinkageError e) {
+            return null;
+        }
+    }
+
     private static boolean parametersResolve(DependencyAgent agent, MethodReader method) {
         for (String exception : method.getExceptionTypes()) {
             if (agent.getClassSource().get(exception) == null) {
@@ -411,11 +510,17 @@ public class ReflectionWasmSupport extends AbstractDependencyListener {
                 linkMethodInvocation(agent, entry.getKey(), entry.getValue());
             }
             // Instance methods dispatch on the receiver's runtime class, as invokevirtual does.
+            // Only methods declared by the receiver's own supertypes can be selected, so those are the only owners
+            // visited (dispatch() rejects every other owner anyway).
             method.getVariable(3).addConsumer(type -> {
-                receivers.add(type.getName());
-                for (Map.Entry<String, List<MethodReader>> entry : methods.entrySet()) {
-                    for (MethodReader declared : entry.getValue()) {
-                        dispatch(agent, type.getName(), entry.getKey(), declared);
+                String receiver = type.getName();
+                for (String owner : supertypes(agent, receiver)) {
+                    receiversBySupertype.computeIfAbsent(owner, k -> new ArrayList<>()).add(receiver);
+                    List<MethodReader> declared = methods.get(owner);
+                    if (declared != null) {
+                        for (MethodReader member : declared) {
+                            dispatch(agent, receiver, owner, member);
+                        }
                     }
                 }
             });
@@ -482,11 +587,11 @@ public class ReflectionWasmSupport extends AbstractDependencyListener {
         for (MethodReader candidate : cls.getMethods()) {
             if (!candidate.getName().equals("<init>") && !candidate.getName().equals("<clinit>")
                     && characteristics.isManaged(candidate.getReference()) && parametersResolve(agent, candidate)
-                    && typeResolves(agent, candidate.getResultType())) {
+                    && typeResolves(agent, candidate.getResultType()) && reflectable(name, candidate)) {
                 declared.add(candidate);
             }
         }
-        methods.put(name, declared);
+        record(methods, name, declared);
         ensureShards(agent);
         agent.linkClass(name);
         requireInterfaces(agent, name);
@@ -504,7 +609,7 @@ public class ReflectionWasmSupport extends AbstractDependencyListener {
         }
         if (invokeDep != null) {
             linkMethodInvocation(agent, name, declared);
-            for (String receiver : new ArrayList<>(receivers)) {
+            for (String receiver : new ArrayList<>(receiversBySupertype.getOrDefault(name, List.of()))) {
                 for (MethodReader member : declared) {
                     dispatch(agent, receiver, name, member);
                 }
@@ -563,6 +668,32 @@ public class ReflectionWasmSupport extends AbstractDependencyListener {
         }
         dep.getThrown().connect(invokeDep.getThrown());
         return dep;
+    }
+
+    // The receiver itself, its superclasses and every interface they implement; arrays only have Object's methods.
+    private static Set<String> supertypes(DependencyAgent agent, String receiver) {
+        Set<String> result = new LinkedHashSet<>();
+        if (receiver.startsWith("[")) {
+            result.add("java.lang.Object");
+            return result;
+        }
+        List<String> queue = new ArrayList<>();
+        queue.add(receiver);
+        for (int i = 0; i < queue.size(); ++i) {
+            String name = queue.get(i);
+            if (!result.add(name)) {
+                continue;
+            }
+            ClassReader cls = agent.getClassSource().get(name);
+            if (cls == null) {
+                continue;
+            }
+            if (cls.getParent() != null) {
+                queue.add(cls.getParent());
+            }
+            queue.addAll(cls.getInterfaces());
+        }
+        return result;
     }
 
     private void dispatch(DependencyAgent agent, String receiver, String owner, MethodReader declared) {
@@ -698,45 +829,51 @@ public class ReflectionWasmSupport extends AbstractDependencyListener {
     }
 
     // Dispatches on (class, member index); the remaining parameters of the native are passed to the emitter. The
-    // native only selects the shard holding the class; each shard dispatches SHARD_SIZE classes, so no generated
-    // method grows with the program (register allocation is quadratic in a method's size).
+    // native switches on the class's bucket (ReflectionBuckets, the class name's hash modulo the shard count) to the
+    // shard holding it, so neither the native nor any shard grows with the number of reflected classes.
     private <T> void submit(DependencyAgent agent, MethodReference method, ValueType resultType,
             Map<String, List<T>> snapshot, Predicate<ClassReader> include, MemberEmitter<T> emitter) {
         if (agent.getMethod(method) == null) {
             return;
         }
         List<MethodReference> methodShards = shards.getOrDefault(method, new ArrayList<>());
-        List<Map.Entry<String, List<T>>> entries = new ArrayList<>(snapshot.entrySet());
+        int shardCount = methodShards.size();
+        List<List<Map.Entry<String, List<T>>>> buckets = new ArrayList<>();
+        for (int k = 0; k < shardCount; ++k) {
+            buckets.add(new ArrayList<>());
+        }
+        for (Map.Entry<String, List<T>> entry : snapshot.entrySet()) {
+            buckets.get(ReflectionBuckets.bucket(entry.getKey(), shardCount)).add(entry);
+        }
         ProgramEmitter pe = ProgramEmitter.create(method.getDescriptor(), agent.getClassHierarchy());
-        ValueEmitter cls = pe.var(1, CLASS);
         ValueEmitter[] parameters = new ValueEmitter[method.parameterCount()];
         for (int i = 0; i < parameters.length; ++i) {
             parameters[i] = pe.var(i + 1, method.parameterType(i));
         }
-        for (int i = 0; i < entries.size(); ++i) {
-            String name = entries.get(i).getKey();
-            if (!include.test(agent.getClassSource().get(name))) {
-                continue;
-            }
-            MethodReference shard = methodShards.get(i / SHARD_SIZE);
-            pe.when(cls.isSame(pe.constant(ValueType.object(name)))).thenDo(() -> {
-                ValueEmitter result = pe.invoke(shard, parameters);
-                if (resultType == ValueType.VOID) {
-                    pe.exit();
-                } else {
-                    result.returnValue();
+        if (shardCount > 0) {
+            ValueEmitter bucket = pe.invoke(BUCKET, parameters[0], pe.constant(shardCount));
+            ChooseEmitter choice = pe.choice(bucket);
+            for (int k = 0; k < shardCount; ++k) {
+                if (buckets.get(k).isEmpty()) {
+                    continue;
                 }
-            });
+                MethodReference shard = methodShards.get(k);
+                choice.option(k, () -> {
+                    ValueEmitter result = pe.invoke(shard, parameters);
+                    if (resultType == ValueType.VOID) {
+                        pe.exit();
+                    } else {
+                        result.returnValue();
+                    }
+                });
+            }
         }
         returnDefault(pe, resultType);
         // Shards only receive the native's values, so they share its summary for every variable.
         DependencyNode summary = submitDeclared(agent, method, pe);
-        for (int k = 0; k < methodShards.size(); ++k) {
-            int from = k * SHARD_SIZE;
-            List<Map.Entry<String, List<T>>> slice = entries.subList(from, Math.min(entries.size(),
-                    from + SHARD_SIZE));
-            agent.submitMethodWithDeclaredFlows(methodShards.get(k), dispatchMembers(agent, method, resultType, slice,
-                    include, emitter).getProgram(), summary, true);
+        for (int k = 0; k < shardCount; ++k) {
+            agent.submitMethodWithDeclaredFlows(methodShards.get(k), dispatchMembers(agent, method, resultType,
+                    buckets.get(k), include, emitter).getProgram(), summary, true);
         }
     }
 
@@ -783,12 +920,19 @@ public class ReflectionWasmSupport extends AbstractDependencyListener {
     private void ensureShards(DependencyAgent agent) {
         for (Map.Entry<MethodReference, MethodDependency> entry : reachedSharded.entrySet()) {
             MethodReference nativeRef = entry.getKey();
-            int needed = (memberMaps.get(nativeRef).size() + SHARD_SIZE - 1) / SHARD_SIZE;
+            int[] total = memberTotals.get(memberMaps.get(nativeRef));
+            int needed = Math.max(1, ((total != null ? total[0] : 0) + SHARD_MEMBERS - 1) / SHARD_MEMBERS);
             List<MethodReference> list = shards.computeIfAbsent(nativeRef, k -> new ArrayList<>());
             while (list.size() < needed) {
                 list.add(createShard(agent, nativeRef));
             }
         }
+    }
+
+    // Every recorded class weighs at least one case in its shard, even when it declares no reflectable member.
+    private <T> void record(Map<String, List<T>> map, String name, List<T> declared) {
+        map.put(name, declared);
+        memberTotals.computeIfAbsent(map, k -> new int[1])[0] += Math.max(1, declared.size());
     }
 
     private static MethodReference createShard(DependencyAgent agent, MethodReference nativeRef) {
@@ -846,11 +990,11 @@ public class ReflectionWasmSupport extends AbstractDependencyListener {
         }
         List<FieldReader> declared = new ArrayList<>();
         for (FieldReader field : cls.getFields()) {
-            if (typeResolves(agent, field.getType())) {
+            if (typeResolves(agent, field.getType()) && reflectable(name, field)) {
                 declared.add(field);
             }
         }
-        fields.put(name, declared);
+        record(fields, name, declared);
         ensureShards(agent);
         agent.linkClass(name);
         requireInterfaces(agent, name);

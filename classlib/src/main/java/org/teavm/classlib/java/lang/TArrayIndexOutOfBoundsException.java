@@ -27,6 +27,6 @@ public class TArrayIndexOutOfBoundsException extends TIndexOutOfBoundsException 
     }
 
     public TArrayIndexOutOfBoundsException(int index) {
-        super(Integer.toString(index));
+        super("Array index out of range: " + index);
     }
 }

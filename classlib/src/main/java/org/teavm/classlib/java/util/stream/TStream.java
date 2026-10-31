@@ -42,7 +42,7 @@ import org.teavm.classlib.java.util.stream.impl.TSpecializedConcatStream;
 import org.teavm.classlib.java.util.stream.impl.TStreamBuilder;
 
 public interface TStream<T> extends TBaseStream<T, TStream<T>> {
-    interface Builder<T> {
+    interface Builder<T> extends Consumer<T> {
         void accept(T t);
 
         default Builder<T> add(T t) {

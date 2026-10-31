@@ -15,6 +15,7 @@
  */
 package org.teavm.classlib.java.util.concurrent;
 
+import org.teavm.classlib.java.io.TSerializable;
 import org.teavm.classlib.java.util.THashMap;
 import org.teavm.classlib.java.util.TMap;
 
@@ -24,7 +25,7 @@ import org.teavm.classlib.java.util.TMap;
  * are behaviorally moot; a plain {@link THashMap} subclass is a
  * semantics-preserving emulation of the (single-threaded) observable behavior.
  */
-public class TConcurrentHashMap<K, V> extends THashMap<K, V> implements TConcurrentMap<K, V> {
+public class TConcurrentHashMap<K, V> extends THashMap<K, V> implements TConcurrentMap<K, V>, TSerializable {
     public TConcurrentHashMap() {
         super();
     }

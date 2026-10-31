@@ -94,9 +94,156 @@ public final class TLocale implements TCloneable, TSerializable {
             variantCode = variant;
             return;
         }
-        languageCode = language;
-        countryCode = country;
+        languageCode = convertOldIsoCodes(asciiLower(language));
+        countryCode = asciiUpper(country);
         variantCode = variant;
+    }
+
+    // JDK 17+: the withdrawn ISO 639 codes are replaced by their current ones.
+    private static String convertOldIsoCodes(String language) {
+        switch (language) {
+            case "iw":
+                return "he";
+            case "ji":
+                return "yi";
+            case "in":
+                return "id";
+            default:
+                return language;
+        }
+    }
+
+    private static String asciiLower(String s) {
+        char[] chars = s.toCharArray();
+        for (int i = 0; i < chars.length; ++i) {
+            if (chars[i] >= 'A' && chars[i] <= 'Z') {
+                chars[i] += 'a' - 'A';
+            }
+        }
+        return new String(chars);
+    }
+
+    private static String asciiUpper(String s) {
+        char[] chars = s.toCharArray();
+        for (int i = 0; i < chars.length; ++i) {
+            if (chars[i] >= 'a' && chars[i] <= 'z') {
+                chars[i] -= 'a' - 'A';
+            }
+        }
+        return new String(chars);
+    }
+
+    // The JDK's Locale.toLanguageTag (LanguageTag.parseLocale): well-formed subtags are kept, ill-formed variant
+    // subtags become private use "lvariant", no_NO_NY is nn-NO, and ja_JP_JP / th_TH_TH carry their compatibility
+    // Unicode extensions.
+    public String toLanguageTag() {
+        String language = isLanguage(languageCode) ? languageCode : "";
+        String region = isRegion(countryCode) ? countryCode : "";
+        String variant = variantCode;
+        String extension = compatibilityExtension();
+        if (language.equals("no") && region.equals("NO") && variant.equals("NY")) {
+            language = "nn";
+            variant = "";
+        }
+        boolean hasSubtag = !region.isEmpty() || extension != null;
+        StringBuilder variants = new StringBuilder();
+        String privateUse = null;
+        if (!variant.isEmpty()) {
+            String[] parts = variant.split("_", -1);
+            int i = 0;
+            while (i < parts.length && isVariant(parts[i])) {
+                variants.append('-').append(parts[i++]);
+                hasSubtag = true;
+            }
+            StringBuilder ill = new StringBuilder();
+            while (i < parts.length && isPrivateUseSubtag(parts[i])) {
+                if (ill.length() > 0) {
+                    ill.append('-');
+                }
+                ill.append(parts[i++]);
+            }
+            if (ill.length() > 0) {
+                privateUse = "lvariant-" + ill;
+            }
+        }
+        if (language.isEmpty() && (hasSubtag || privateUse == null)) {
+            language = "und";
+        }
+        StringBuilder sb = new StringBuilder(language);
+        if (!region.isEmpty()) {
+            sb.append('-').append(region);
+        }
+        sb.append(variants);
+        if (extension != null) {
+            sb.append('-').append(extension);
+        }
+        if (privateUse != null) {
+            if (sb.length() > 0) {
+                sb.append('-');
+            }
+            sb.append("x-").append(privateUse);
+        }
+        return sb.toString();
+    }
+
+    private String compatibilityExtension() {
+        if (languageCode.equals("ja") && countryCode.equals("JP") && variantCode.equals("JP")) {
+            return "u-ca-japanese";
+        }
+        if (languageCode.equals("th") && countryCode.equals("TH") && variantCode.equals("TH")) {
+            return "u-nu-thai";
+        }
+        return null;
+    }
+
+    private static boolean isLanguage(String s) {
+        return s.length() >= 2 && s.length() <= 8 && isAlpha(s);
+    }
+
+    private static boolean isRegion(String s) {
+        return s.length() == 2 && isAlpha(s) || s.length() == 3 && isNumeric(s);
+    }
+
+    private static boolean isVariant(String s) {
+        int len = s.length();
+        if (len >= 5 && len <= 8) {
+            return isAlphaNumeric(s);
+        }
+        return len == 4 && s.charAt(0) >= '0' && s.charAt(0) <= '9' && isAlphaNumeric(s);
+    }
+
+    private static boolean isPrivateUseSubtag(String s) {
+        return s.length() >= 1 && s.length() <= 8 && isAlphaNumeric(s);
+    }
+
+    private static boolean isAlpha(String s) {
+        for (int i = 0; i < s.length(); ++i) {
+            char c = s.charAt(i);
+            if (!(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z')) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean isNumeric(String s) {
+        for (int i = 0; i < s.length(); ++i) {
+            char c = s.charAt(i);
+            if (c < '0' || c > '9') {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean isAlphaNumeric(String s) {
+        for (int i = 0; i < s.length(); ++i) {
+            char c = s.charAt(i);
+            if (!(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9')) {
+                return false;
+            }
+        }
+        return true;
     }
 
     @Override

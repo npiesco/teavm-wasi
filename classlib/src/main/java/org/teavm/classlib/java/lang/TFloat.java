@@ -16,6 +16,7 @@
 package org.teavm.classlib.java.lang;
 
 import org.teavm.classlib.PlatformDetector;
+import org.teavm.classlib.impl.text.FloatingDecimalParser;
 import org.teavm.interop.Import;
 import org.teavm.interop.NoSideEffects;
 import org.teavm.interop.Unmanaged;
@@ -84,12 +85,24 @@ public class TFloat extends TNumber implements TComparable<TFloat> {
         if (this == other) {
             return true;
         }
-        return other instanceof TFloat && ((TFloat) other).value == value;
+        return other instanceof TFloat && floatToIntBits(((TFloat) other).value) == floatToIntBits(value);
     }
 
     @Override
     public int hashCode() {
         return hashCode(value);
+    }
+
+    public static float sum(float a, float b) {
+        return a + b;
+    }
+
+    public static float max(float a, float b) {
+        return Math.max(a, b);
+    }
+
+    public static float min(float a, float b) {
+        return Math.min(a, b);
     }
 
     public static int hashCode(float f) {
@@ -153,122 +166,7 @@ public class TFloat extends TNumber implements TComparable<TFloat> {
     private static native float nativeGetNaN();
 
     public static float parseFloat(TString string) throws TNumberFormatException {
-        // TODO: parse infinite and different radix
-
-        if (string.isEmpty()) {
-            throw new TNumberFormatException();
-        }
-        int start = 0;
-        int end = string.length();
-        while (string.charAt(start) <= ' ') {
-            if (++start == end) {
-                throw new TNumberFormatException();
-            }
-        }
-        while (string.charAt(end - 1) <= ' ') {
-            --end;
-        }
-
-        boolean negative = false;
-        int index = start;
-        if (string.charAt(index) == '-') {
-            ++index;
-            negative = true;
-        } else if (string.charAt(index) == '+') {
-            ++index;
-        }
-        if (index == end) {
-            throw new TNumberFormatException();
-        }
-        char c = string.charAt(index);
-
-        int mantissa = 0;
-        int exp = 0;
-
-        boolean hasOneDigit = false;
-        if (c != '.') {
-            hasOneDigit = true;
-            if (c < '0' || c > '9') {
-                throw new TNumberFormatException();
-            }
-
-            while (index < end && string.charAt(index) == '0') {
-                ++index;
-            }
-            while (index < end) {
-                c = string.charAt(index);
-                if (c < '0' || c > '9') {
-                    break;
-                }
-                if (mantissa < (TInteger.MAX_VALUE / 10) - 9) {
-                    mantissa = mantissa * 10 + (c - '0');
-                } else {
-                    ++exp;
-                }
-                ++index;
-            }
-        }
-
-        if (index < end && string.charAt(index) == '.') {
-            ++index;
-            while (index < end) {
-                c = string.charAt(index);
-                if (c < '0' || c > '9') {
-                    break;
-                }
-                if (mantissa < (TInteger.MAX_VALUE / 10) - 9) {
-                    mantissa = mantissa * 10 + (c - '0');
-                    --exp;
-                }
-                ++index;
-                hasOneDigit = true;
-            }
-            if (!hasOneDigit) {
-                throw new TNumberFormatException();
-            }
-        }
-        if (index < end) {
-            c = string.charAt(index);
-            if (c != 'e' && c != 'E') {
-                throw new TNumberFormatException();
-            }
-            ++index;
-            boolean negativeExp = false;
-            if (index == end) {
-                throw new TNumberFormatException();
-            }
-            if (string.charAt(index) == '-') {
-                ++index;
-                negativeExp = true;
-            } else if (string.charAt(index) == '+') {
-                ++index;
-            }
-            int numExp = 0;
-            hasOneDigit = false;
-            while (index < end) {
-                c = string.charAt(index);
-                if (c < '0' || c > '9') {
-                    break;
-                }
-                numExp = 10 * numExp + (c - '0');
-                hasOneDigit = true;
-                ++index;
-            }
-            if (!hasOneDigit) {
-                throw new TNumberFormatException();
-            }
-            if (negativeExp) {
-                numExp = -numExp;
-            }
-            exp += numExp;
-        }
-        if (exp > 38 || exp == 38 && mantissa > 34028234) {
-            return !negative ? POSITIVE_INFINITY : NEGATIVE_INFINITY;
-        }
-        if (negative) {
-            mantissa = -mantissa;
-        }
-        return mantissa * decimalExponent(exp);
+        return FloatingDecimalParser.parseFloat((String) (Object) string);
     }
 
     private static float decimalExponent(int n) {
@@ -303,7 +201,17 @@ public class TFloat extends TNumber implements TComparable<TFloat> {
     }
 
     @NoSideEffects
-    public static native int compare(float f1, float f2);
+    public static int compare(float f1, float f2) {
+        if (f1 < f2) {
+            return -1;
+        }
+        if (f1 > f2) {
+            return 1;
+        }
+        int aBits = floatToIntBits(f1);
+        int bBits = floatToIntBits(f2);
+        return aBits == bBits ? 0 : aBits < bBits ? -1 : 1;
+    }
 
     @Override
     public int compareTo(TFloat other) {
@@ -331,6 +239,8 @@ public class TFloat extends TNumber implements TComparable<TFloat> {
             return "NaN";
         } else if (isInfinite(f)) {
             return f > 0 ? "Infinity" : "-Infinity";
+        } else if (f == 0) {
+            return floatToRawIntBits(f) < 0 ? "-0x0.0p0" : "0x0.0p0";
         }
         char[] buffer = new char[18];
         int sz = 0;

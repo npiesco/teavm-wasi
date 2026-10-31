@@ -107,7 +107,7 @@ public class TShort extends TNumber implements TComparable<TShort> {
     public static short parseShort(String s, int radix) throws TNumberFormatException {
         int value = TInteger.parseInt(s, radix);
         if (value < MIN_VALUE || value > MAX_VALUE) {
-            throw new TNumberFormatException();
+            throw new TNumberFormatException("Value out of range. Value:\"" + s + "\" Radix:" + radix);
         }
         return (short) value;
     }
@@ -124,10 +124,10 @@ public class TShort extends TNumber implements TComparable<TShort> {
         return valueOf(parseShort(s));
     }
 
-    public static TShort decode(String s) throws TNumberFormatException {
-        int value = TInteger.decode(s).intValue();
+    public static TShort decode(String nm) throws TNumberFormatException {
+        int value = TInteger.decode(nm).intValue();
         if (value < MIN_VALUE || value > MAX_VALUE) {
-            throw new TNumberFormatException();
+            throw new TNumberFormatException("Value " + value + " out of range from input " + nm);
         }
         return valueOf((short) value);
     }

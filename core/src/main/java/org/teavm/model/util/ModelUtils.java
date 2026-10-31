@@ -26,6 +26,7 @@ import org.teavm.model.ClassHolder;
 import org.teavm.model.ClassReader;
 import org.teavm.model.FieldHolder;
 import org.teavm.model.FieldReader;
+import org.teavm.model.GenericValueType;
 import org.teavm.model.MethodHolder;
 import org.teavm.model.MethodReader;
 
@@ -42,6 +43,9 @@ public final class ModelUtils {
         target.getModifiers().addAll(original.readModifiers());
         target.setParent(original.getParent());
         target.getInterfaces().addAll(original.getInterfaces());
+        target.setGenericParameters(original.getGenericParameters());
+        target.setGenericParent(original.getGenericParent());
+        target.getGenericInterfaces().addAll(original.getGenericInterfaces());
         for (MethodReader method : original.getMethods()) {
             target.addMethod(copyMethod(method, withPrograms));
         }
@@ -71,6 +75,14 @@ public final class ModelUtils {
         MethodHolder copy = new MethodHolder(method.getDescriptor());
         copy.setLevel(method.getLevel());
         copy.getModifiers().addAll(method.readModifiers());
+        copy.setTypeParameters(method.getTypeParameters());
+        if (method.getGenericResultType() != null) {
+            GenericValueType[] genericParameters = new GenericValueType[method.genericParameterCount()];
+            for (int i = 0; i < genericParameters.length; ++i) {
+                genericParameters[i] = method.genericParameterType(i);
+            }
+            copy.setGenericSignature(method.getGenericResultType(), genericParameters);
+        }
         if (method.getProgram() != null && withProgram) {
             copy.setProgram(ProgramUtils.copy(method.getProgram()));
         }
@@ -90,6 +102,7 @@ public final class ModelUtils {
         copy.setLevel(field.getLevel());
         copy.getModifiers().addAll(field.readModifiers());
         copy.setType(field.getType());
+        copy.setGenericType(field.getGenericType());
         copy.setInitialValue(field.getInitialValue());
         copyAnnotations(field.getAnnotations(), copy.getAnnotations());
         return copy;

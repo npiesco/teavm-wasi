@@ -155,4 +155,13 @@ public interface TList<E> extends TCollection<E> {
         }
         return new TTemplateCollections.ImmutableArrayList<>(elements.clone());
     }
+
+    // JDK List.copyOf: an unmodifiable list is returned as is; anything else is copied, rejecting nulls.
+    @SuppressWarnings("unchecked")
+    static <E> TList<E> copyOf(TCollection<? extends E> coll) {
+        if (coll instanceof TTemplateCollections.AbstractImmutableList) {
+            return (TList<E>) coll;
+        }
+        return TList.<E>of((E[]) coll.toArray());
+    }
 }

@@ -17,6 +17,7 @@ package org.teavm.classlib.java.lang;
 
 import static org.teavm.classlib.impl.IntegerUtil.toUnsignedLogRadixString;
 import org.teavm.backend.javascript.spi.GeneratedBy;
+import org.teavm.classlib.impl.ParseSupport;
 import org.teavm.interop.NoSideEffects;
 
 public class TLong extends TNumber implements TComparable<TLong> {
@@ -39,42 +40,25 @@ public class TLong extends TNumber implements TComparable<TLong> {
     }
 
     public static long parseLong(String s, int radix) throws TNumberFormatException {
-        if (radix < TCharacter.MIN_RADIX || radix > TCharacter.MAX_RADIX) {
-            throw new TNumberFormatException("Illegal radix: " + radix);
-        }
-        if (s == null || s.isEmpty()) {
-            throw new TNumberFormatException("String is null or empty");
-        }
-        boolean negative = false;
-        int index = 0;
-        switch (s.charAt(0)) {
-            case '-':
-                negative = true;
-                index = 1;
-                break;
-            case '+':
-                index = 1;
-                break;
-        }
-        long value = 0;
-        while (index < s.length()) {
-            int digit = TCharacter.getNumericValue(s.charAt(index++));
-            if (digit < 0) {
-                throw new TNumberFormatException("String contains invalid digits: " + s);
-            }
-            if (digit >= radix) {
-                throw new TNumberFormatException("String contains digits out of radix " + radix
-                        + ": " + s);
-            }
-            value = radix * value + digit;
-            if (value < 0) {
-                if (index == s.length() && value == MIN_VALUE && negative) {
-                    return MIN_VALUE;
-                }
-                throw new TNumberFormatException("The value is too big for int type: " + s);
-            }
-        }
-        return negative ? -value : value;
+        return ParseSupport.parseSigned(s, radix, MIN_VALUE, MAX_VALUE);
+    }
+
+    public static long parseLong(CharSequence s, int beginIndex, int endIndex, int radix)
+            throws TNumberFormatException {
+        return ParseSupport.parseSigned(s, beginIndex, endIndex, radix, MIN_VALUE, MAX_VALUE);
+    }
+
+    public static long parseUnsignedLong(String s, int radix) throws TNumberFormatException {
+        return ParseSupport.parseUnsignedLong(s, radix);
+    }
+
+    public static long parseUnsignedLong(String s) throws TNumberFormatException {
+        return parseUnsignedLong(s, 10);
+    }
+
+    public static long parseUnsignedLong(CharSequence s, int beginIndex, int endIndex, int radix)
+            throws TNumberFormatException {
+        return ParseSupport.parseUnsignedLong(s, beginIndex, endIndex, radix);
     }
 
     public static long parseLong(String s) throws TNumberFormatException {
@@ -89,68 +73,10 @@ public class TLong extends TNumber implements TComparable<TLong> {
         return valueOf(parseLong(s));
     }
 
-    public static TLong decode(TString nm) throws TNumberFormatException {
-        if (nm == null || nm.isEmpty()) {
-            throw new TNumberFormatException("Can't parse empty or null string");
-        }
-        int index = 0;
-        boolean negaive = false;
-        if (nm.charAt(index) == '+') {
-            ++index;
-        } else if (nm.charAt(index) == '-') {
-            ++index;
-            negaive = true;
-        }
-        if (index >= nm.length()) {
-            throw new TNumberFormatException("The string does not represent a number");
-        }
-        int radix = 10;
-        if (nm.charAt(index) == '#') {
-            radix = 16;
-            ++index;
-        } else if (nm.charAt(index) == '0') {
-            ++index;
-            if (index == nm.length()) {
-                return TLong.valueOf(0);
-            }
-            if (nm.charAt(index) == 'x' || nm.charAt(index) == 'X') {
-                radix = 16;
-                ++index;
-            } else {
-                radix = 8;
-            }
-        }
-        if (index >= nm.length()) {
-            throw new TNumberFormatException("The string does not represent a number");
-        }
-        long value = 0;
-        while (index < nm.length()) {
-            int digit = decodeDigit(nm.charAt(index++));
-            if (digit >= radix) {
-                throw new TNumberFormatException("The string does not represent a number");
-            }
-            value = value * radix + digit;
-            if (value < 0) {
-                if (negaive && value == MIN_VALUE && index == nm.length()) {
-                    return TLong.valueOf(MIN_VALUE);
-                }
-                throw new TNumberFormatException("The string represents a too big number");
-            }
-        }
-        return TLong.valueOf(negaive ? -value : value);
+    public static TLong decode(String nm) throws TNumberFormatException {
+        return valueOf(ParseSupport.decode(nm, MIN_VALUE, MAX_VALUE));
     }
 
-    private static int decodeDigit(char c) {
-        if (c >= '0' && c <= '9') {
-            return c - '0';
-        } else if (c >= 'a' && c <= 'z') {
-            return c - 'a' + 10;
-        } else if (c >= 'A' && c <= 'Z') {
-            return c - 'A' + 10;
-        } else {
-            return 255;
-        }
-    }
     @Override
     public int intValue() {
         return (int) value;
@@ -172,6 +98,9 @@ public class TLong extends TNumber implements TComparable<TLong> {
     }
 
     public static String toString(long i, int radix) {
+        if (radix < Character.MIN_RADIX || radix > Character.MAX_RADIX) {
+            radix = 10;
+        }
         return new TStringBuilder().insert(0, i, radix).toString();
     }
 
@@ -201,7 +130,19 @@ public class TLong extends TNumber implements TComparable<TLong> {
         return hashCode(value);
     }
 
-    private static int hashCode(long value) {
+    public static long sum(long a, long b) {
+        return a + b;
+    }
+
+    public static long max(long a, long b) {
+        return Math.max(a, b);
+    }
+
+    public static long min(long a, long b) {
+        return Math.min(a, b);
+    }
+
+    public static int hashCode(long value) {
         return (int) value ^ (int) (value >>> 32);
     }
 

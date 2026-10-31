@@ -15,10 +15,18 @@
  */
 package org.teavm.model.lowlevel;
 
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import org.teavm.common.Graph;
 import org.teavm.model.BasicBlock;
+import org.teavm.model.Incoming;
 import org.teavm.model.Instruction;
 import org.teavm.model.MethodReference;
+import org.teavm.model.Phi;
 import org.teavm.model.Program;
+import org.teavm.model.TryCatchBlock;
 import org.teavm.model.ValueType;
 import org.teavm.model.Variable;
 import org.teavm.model.instructions.ArrayLengthInstruction;
@@ -39,17 +47,22 @@ import org.teavm.model.instructions.LongConstantInstruction;
 import org.teavm.model.instructions.NullCheckInstruction;
 import org.teavm.model.instructions.NullConstantInstruction;
 import org.teavm.model.instructions.NumericOperandType;
+import org.teavm.model.instructions.StringConstantInstruction;
 import org.teavm.model.util.BasicBlockSplitter;
+import org.teavm.model.util.DefinitionExtractor;
+import org.teavm.model.util.ProgramUtils;
 import org.teavm.runtime.ExceptionHandling;
 
 public class CheckInstructionTransformation {
     private BasicBlock returnBlock;
     private BasicBlock next;
+    private List<BasicBlock> throwBlocks = new ArrayList<>();
 
     public void apply(Program program, ValueType returnType) {
         BasicBlockSplitter splitter = new BasicBlockSplitter(program);
 
         returnBlock = null;
+        throwBlocks.clear();
         int count = program.basicBlockCount();
         for (int i = 0; i < count; ++i) {
             next = program.basicBlockAt(i);
@@ -78,17 +91,87 @@ public class CheckInstructionTransformation {
         }
 
         splitter.fixProgram();
+        attachExceptionHandlers(program);
+    }
+
+    // A throw block runs the check's throw call, so a try/catch around the check must catch it: the block gets the
+    // checked block's try/catch blocks, and each handler phi the value its variable has at the end of that block.
+    // This runs after the splitter has fixed handler phis for every split part.
+    private void attachExceptionHandlers(Program program) {
+        if (throwBlocks.isEmpty()) {
+            return;
+        }
+        Graph cfg = ProgramUtils.buildControlFlowGraph(program);
+        DefinitionExtractor defExtractor = new DefinitionExtractor();
+        for (BasicBlock throwBlock : throwBlocks) {
+            BasicBlock checked = null;
+            for (int predecessor : cfg.incomingEdges(throwBlock.getIndex())) {
+                BasicBlock candidate = program.basicBlockAt(predecessor);
+                if (!candidate.getTryCatchBlocks().isEmpty()) {
+                    checked = candidate;
+                    break;
+                }
+            }
+            if (checked == null) {
+                continue;
+            }
+            List<Variable> definedInChecked = new ArrayList<>();
+            for (Phi phi : checked.getPhis()) {
+                definedInChecked.add(phi.getReceiver());
+            }
+            definedInChecked.addAll(ProgramUtils.getVariablesDefinedInBlock(checked, defExtractor));
+            Set<BasicBlock> handlers = new HashSet<>();
+            for (TryCatchBlock tryCatch : checked.getTryCatchBlocks()) {
+                if (!handlers.add(tryCatch.getHandler())) {
+                    continue;
+                }
+                for (Phi phi : tryCatch.getHandler().getPhis()) {
+                    Variable value = null;
+                    int position = -2;
+                    for (Incoming incoming : phi.getIncomings()) {
+                        if (incoming.getSource() != checked) {
+                            continue;
+                        }
+                        int incomingPosition = definedInChecked.indexOf(incoming.getValue());
+                        if (incomingPosition > position) {
+                            value = incoming.getValue();
+                            position = incomingPosition;
+                        }
+                    }
+                    if (value != null) {
+                        Incoming incoming = new Incoming();
+                        incoming.setSource(throwBlock);
+                        incoming.setValue(value);
+                        phi.getIncomings().add(incoming);
+                    }
+                }
+            }
+            throwBlock.getTryCatchBlocks().addAll(ProgramUtils.copyTryCatches(checked, program));
+        }
     }
 
     private void replaceNullCheck(BasicBlockSplitter splitter, Program program, NullCheckInstruction nullCheck) {
         BasicBlock block = nullCheck.getBasicBlock();
         BasicBlock continueBlock = splitter.split(block, nullCheck);
         BasicBlock throwBlock = program.createBasicBlock();
+        throwBlocks.add(throwBlock);
 
         InvokeInstruction throwNPE = new InvokeInstruction();
         throwNPE.setType(InvocationType.SPECIAL);
-        throwNPE.setMethod(new MethodReference(ExceptionHandling.class, "throwNullPointerException",
-                void.class));
+        String message = nullCheck.getLocation() != null ? nullCheck.getLocation().getNullMessage() : null;
+        if (message != null) {
+            StringConstantInstruction messageConstant = new StringConstantInstruction();
+            messageConstant.setConstant(message);
+            messageConstant.setReceiver(program.createVariable());
+            messageConstant.setLocation(nullCheck.getLocation());
+            throwBlock.add(messageConstant);
+            throwNPE.setMethod(new MethodReference(ExceptionHandling.class, "throwNullPointerException",
+                    String.class, void.class));
+            throwNPE.setArguments(messageConstant.getReceiver());
+        } else {
+            throwNPE.setMethod(new MethodReference(ExceptionHandling.class, "throwNullPointerException",
+                    void.class));
+        }
         throwNPE.setLocation(nullCheck.getLocation());
         throwBlock.add(throwNPE);
 
@@ -114,16 +197,34 @@ public class CheckInstructionTransformation {
         BasicBlock block = boundCheck.getBasicBlock();
         BasicBlock continueBlock = splitter.split(block, boundCheck);
         BasicBlock throwBlock = program.createBasicBlock();
+        throwBlocks.add(throwBlock);
+
+        // The length is read before either test, so the exception can report it as the JDK's message does.
+        Variable length = null;
+        if (boundCheck.getArray() != null) {
+            ArrayLengthInstruction arrayLength = new ArrayLengthInstruction();
+            arrayLength.setArray(boundCheck.getArray());
+            arrayLength.setReceiver(program.createVariable());
+            arrayLength.setLocation(boundCheck.getLocation());
+            boundCheck.insertPrevious(arrayLength);
+            length = arrayLength.getReceiver();
+        }
 
         BasicBlock ifPositiveBlock = continueBlock;
-        if (boundCheck.isLower() && boundCheck.getArray() != null) {
+        if (boundCheck.isLower() && length != null) {
             ifPositiveBlock = program.createBasicBlock();
         }
 
         InvokeInstruction throwAIOOBE = new InvokeInstruction();
         throwAIOOBE.setType(InvocationType.SPECIAL);
-        throwAIOOBE.setMethod(new MethodReference(ExceptionHandling.class, "throwArrayIndexOutOfBoundsException",
-                void.class));
+        if (length != null) {
+            throwAIOOBE.setMethod(new MethodReference(ExceptionHandling.class, "throwArrayIndexOutOfBoundsException",
+                    int.class, int.class, void.class));
+            throwAIOOBE.setArguments(boundCheck.getIndex(), length);
+        } else {
+            throwAIOOBE.setMethod(new MethodReference(ExceptionHandling.class, "throwArrayIndexOutOfBoundsException",
+                    void.class));
+        }
         throwAIOOBE.setLocation(boundCheck.getLocation());
         throwBlock.add(throwAIOOBE);
 
@@ -138,15 +239,10 @@ public class CheckInstructionTransformation {
             boundCheck.replace(jumpIfLess);
         }
 
-        if (boundCheck.getArray() != null) {
-            ArrayLengthInstruction arrayLength = new ArrayLengthInstruction();
-            arrayLength.setArray(boundCheck.getArray());
-            arrayLength.setReceiver(program.createVariable());
-            arrayLength.setLocation(boundCheck.getLocation());
-
+        if (length != null) {
             BinaryInstruction compare = new BinaryInstruction(BinaryOperation.COMPARE, NumericOperandType.INT);
             compare.setFirstOperand(boundCheck.getIndex());
-            compare.setSecondOperand(arrayLength.getReceiver());
+            compare.setSecondOperand(length);
             compare.setReceiver(program.createVariable());
             compare.setLocation(boundCheck.getLocation());
 
@@ -161,8 +257,6 @@ public class CheckInstructionTransformation {
             } else {
                 boundCheck.replace(jumpIfGreater);
             }
-
-            jumpIfGreater.insertPrevious(arrayLength);
             jumpIfGreater.insertPrevious(compare);
         }
 

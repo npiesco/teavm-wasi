@@ -15,13 +15,15 @@
  */
 package org.teavm.classlib.java.net;
 
+import org.teavm.classlib.java.io.TSerializable;
+
 /**
  * Minimal emulation of {@code java.net.InetAddress}. WASI has no host name
  * resolution or DNS; the type exists so reachable references (e.g. a lazily
  * used {@code localhost:} string lookup) link, and each resolving operation
  * throws clearly if a WASI module actually attempts it.
  */
-public class TInetAddress {
+public class TInetAddress implements TSerializable {
     protected TInetAddress() {
     }
 

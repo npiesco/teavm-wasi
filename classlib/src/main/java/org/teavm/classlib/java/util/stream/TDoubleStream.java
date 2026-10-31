@@ -40,7 +40,7 @@ import org.teavm.classlib.java.util.stream.doubleimpl.TSingleDoubleStreamImpl;
 import org.teavm.classlib.java.util.stream.doubleimpl.TSpecializedConcatDoubleStream;
 
 public interface TDoubleStream extends TBaseStream<Double, TDoubleStream> {
-    interface Builder {
+    interface Builder extends DoubleConsumer {
         void accept(double t);
 
         default Builder add(double t) {

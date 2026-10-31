@@ -38,12 +38,13 @@ public final class WasmRuntime {
         return gt(a, b) ? 1 : lt(a, b) ? -1 : 0;
     }
 
+    // fcmpg/dcmpg: an unordered (NaN) comparison is greater, as COMPARE is defined for floating operands.
     public static int compare(float a, float b) {
-        return gt(a, b) ? 1 : lt(a, b) ? -1 : 0;
+        return gt(a, b) ? 1 : lt(a, b) ? -1 : a == b ? 0 : 1;
     }
 
     public static int compare(double a, double b) {
-        return gt(a, b) ? 1 : lt(a, b) ? -1 : 0;
+        return gt(a, b) ? 1 : lt(a, b) ? -1 : a == b ? 0 : 1;
     }
 
     public static float remainder(float a, float b) {

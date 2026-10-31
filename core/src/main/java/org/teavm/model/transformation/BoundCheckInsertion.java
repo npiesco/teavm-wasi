@@ -389,9 +389,8 @@ public class BoundCheckInsertion {
                 if (lower) {
                     boundCheck.setLower(true);
                 }
-                if (upper) {
-                    boundCheck.setArray(arrayVar);
-                }
+                // The array is kept even when only the lower bound needs testing: the exception reports its length.
+                boundCheck.setArray(arrayVar);
                 boundCheck.setIndex(indexVar);
                 boundCheck.setReceiver(indexVar);
                 boundCheck.setLocation(instruction.getLocation());

@@ -48,6 +48,7 @@ import org.teavm.ast.MonitorExitStatement;
 import org.teavm.ast.NewArrayExpr;
 import org.teavm.ast.NewExpr;
 import org.teavm.ast.NewMultiArrayExpr;
+import org.teavm.ast.OperationType;
 import org.teavm.ast.PrimitiveCastExpr;
 import org.teavm.ast.QualificationExpr;
 import org.teavm.ast.ReturnStatement;
@@ -99,6 +100,55 @@ class OptimizingVisitor implements StatementVisitor, ExprVisitor {
 
     private static boolean isComparison(Expr expr) {
         return expr instanceof BinaryExpr && ((BinaryExpr) expr).getOperation() == BinaryOperation.COMPARE;
+    }
+
+    private static boolean isRelational(BinaryOperation op) {
+        switch (op) {
+            case EQUALS:
+            case NOT_EQUALS:
+            case LESS:
+            case LESS_OR_EQUALS:
+            case GREATER:
+            case GREATER_OR_EQUALS:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private static BinaryOperation flip(BinaryOperation op) {
+        switch (op) {
+            case LESS:
+                return BinaryOperation.GREATER;
+            case LESS_OR_EQUALS:
+                return BinaryOperation.GREATER_OR_EQUALS;
+            case GREATER:
+                return BinaryOperation.LESS;
+            case GREATER_OR_EQUALS:
+                return BinaryOperation.LESS_OR_EQUALS;
+            default:
+                return op;
+        }
+    }
+
+    // compare(x, y) OP 0 as a direct comparison of x and y. On floating operands COMPARE is fcmpg/dcmpg, where an
+    // unordered (NaN) comparison yields 1: then > and >= hold, while x > y and x >= y are false, so they become
+    // !(x <= y) and !(x < y); <, <=, == and != already agree.
+    private static Expr fuseComparison(BinaryOperation op, BinaryExpr comparison) {
+        Expr x = comparison.getFirstOperand();
+        Expr y = comparison.getSecondOperand();
+        OperationType type = comparison.getType();
+        boolean floating = type == OperationType.FLOAT || type == OperationType.DOUBLE;
+        Expr result;
+        if (floating && op == BinaryOperation.GREATER) {
+            result = Expr.invert(BinaryExpr.binary(BinaryOperation.LESS_OR_EQUALS, type, x, y));
+        } else if (floating && op == BinaryOperation.GREATER_OR_EQUALS) {
+            result = Expr.invert(BinaryExpr.binary(BinaryOperation.LESS, type, x, y));
+        } else {
+            result = BinaryExpr.binary(op, type, x, y);
+        }
+        result.setLocation(comparison.getLocation());
+        return result;
     }
 
     private void pushLocation(TextLocation location) {
@@ -163,35 +213,26 @@ class OptimizingVisitor implements StatementVisitor, ExprVisitor {
                 removeBarrier(barrier);
             }
 
+            // A three-way comparison tested against zero becomes the comparison itself: 0 OP c is c flip(OP) 0, and
+            // -c OP 0 (how fcmpl/dcmpl are expressed) is c flip(OP) 0 as well.
             Expr p = a;
             Expr q = b;
-            boolean invert = false;
+            BinaryOperation op = expr.getOperation();
             if (isZero(p)) {
                 Expr tmp = p;
                 p = q;
                 q = tmp;
-                invert = true;
+                op = flip(op);
             }
-            if (isComparison(p) && isZero(q)) {
-                switch (expr.getOperation()) {
-                    case EQUALS:
-                    case NOT_EQUALS:
-                    case LESS:
-                    case LESS_OR_EQUALS:
-                    case GREATER:
-                    case GREATER_OR_EQUALS: {
-                        BinaryExpr comparison = (BinaryExpr) p;
-                        Expr result = BinaryExpr.binary(expr.getOperation(), comparison.getType(),
-                                comparison.getFirstOperand(), comparison.getSecondOperand());
-                        result.setLocation(comparison.getLocation());
-                        if (invert) {
-                            result = ExprOptimizer.invert(result);
-                        }
-                        resultExpr = result;
-                        return;
-                    }
-                    default:
-                        break;
+            if (isZero(q) && isRelational(op)) {
+                if (p instanceof UnaryExpr && ((UnaryExpr) p).getOperation() == UnaryOperation.NEGATE
+                        && isComparison(((UnaryExpr) p).getOperand())) {
+                    p = ((UnaryExpr) p).getOperand();
+                    op = flip(op);
+                }
+                if (isComparison(p)) {
+                    resultExpr = fuseComparison(op, (BinaryExpr) p);
+                    return;
                 }
             }
             expr.setFirstOperand(a);

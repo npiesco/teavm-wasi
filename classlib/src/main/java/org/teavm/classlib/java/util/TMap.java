@@ -170,6 +170,14 @@ public interface TMap<K, V> {
         }
     }
 
+    default void replaceAll(BiFunction<? super K, ? super V, ? extends V> function) {
+        requireNonNull(function);
+        for (TIterator<Entry<K, V>> iterator = entrySet().iterator(); iterator.hasNext();) {
+            Entry<K, V> entry = iterator.next();
+            entry.setValue(function.apply(entry.getKey(), entry.getValue()));
+        }
+    }
+
     static <K, V> TMap<K, V> of() {
         return TCollections.emptyMap();
     }
@@ -285,5 +293,20 @@ public interface TMap<K, V> {
 
     static <K, V> TMap.Entry<K, V> entry(K k, V v) {
         return new TTemplateCollections.ImmutableEntry<>(requireNonNull(k), requireNonNull(v));
+    }
+
+    // JDK Map.copyOf: the keys and values are copied out of the source's entries, rejecting nulls.
+    @SuppressWarnings("unchecked")
+    static <K, V> TMap<K, V> copyOf(TMap<? extends K, ? extends V> map) {
+        if (map instanceof TTemplateCollections.AbstractImmutableMap) {
+            return (TMap<K, V>) map;
+        }
+        TMap.Entry<K, V>[] entries = new TMap.Entry[map.size()];
+        int i = 0;
+        for (TIterator<? extends TMap.Entry<? extends K, ? extends V>> it = map.entrySet().iterator(); it.hasNext();) {
+            TMap.Entry<? extends K, ? extends V> e = it.next();
+            entries[i++] = entry(e.getKey(), e.getValue());
+        }
+        return ofEntries(entries);
     }
 }

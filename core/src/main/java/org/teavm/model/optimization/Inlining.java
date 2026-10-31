@@ -47,6 +47,7 @@ import org.teavm.model.Program;
 import org.teavm.model.ProgramReader;
 import org.teavm.model.TextLocation;
 import org.teavm.model.TryCatchBlock;
+import org.teavm.model.Variable;
 import org.teavm.model.VariableReader;
 import org.teavm.model.analysis.ClassInference;
 import org.teavm.model.instructions.AbstractInstructionReader;
@@ -55,6 +56,7 @@ import org.teavm.model.instructions.ExitInstruction;
 import org.teavm.model.instructions.InvocationType;
 import org.teavm.model.instructions.InvokeInstruction;
 import org.teavm.model.instructions.JumpInstruction;
+import org.teavm.model.instructions.NullCheckInstruction;
 import org.teavm.model.util.BasicBlockMapper;
 import org.teavm.model.util.InstructionVariableMapper;
 import org.teavm.model.util.ProgramUtils;
@@ -226,6 +228,19 @@ public class Inlining {
         }
         splitBlock.getTryCatchBlocks().addAll(ProgramUtils.copyTryCatches(block, program));
 
+        // The JVM checks the receiver before entering the callee, so a null receiver reports the call, not whatever
+        // the inlined body dereferences first.
+        Variable receiver = invoke.getInstance();
+        if (receiver != null && invoke.getLocation() != null && invoke.getLocation().getNullMessage() != null) {
+            NullCheckInstruction nullCheck = new NullCheckInstruction();
+            nullCheck.setValue(receiver);
+            nullCheck.setReceiver(program.createVariable());
+            nullCheck.setLocation(invoke.getLocation());
+            invoke.insertPrevious(nullCheck);
+            receiver = nullCheck.getReceiver();
+        }
+        Variable checkedReceiver = receiver;
+
         invoke.delete();
         JumpInstruction jumpToInlinedProgram = new JumpInstruction();
         jumpToInlinedProgram.setTarget(firstInlineBlock);
@@ -256,7 +271,7 @@ public class Inlining {
                     location = TextLocation.EMPTY;
                 }
                 location = new TextLocation(location.getFileName(), location.getLine(),
-                        inliningInfoMerger.merge(location.getInlining()));
+                        inliningInfoMerger.merge(location.getInlining()), location.getNullMessage());
                 insn.setLocation(location);
             }
 
@@ -275,7 +290,7 @@ public class Inlining {
                 program.basicBlockAt(b.getIndex() + firstInlineBlock.getIndex()));
         InstructionVariableMapper variableMapper = new InstructionVariableMapper(var -> {
             if (var.getIndex() == 0) {
-                return invoke.getInstance();
+                return checkedReceiver;
             } else if (var.getIndex() <= invoke.getArguments().size()) {
                 return invoke.getArguments().get(var.getIndex() - 1);
             } else {

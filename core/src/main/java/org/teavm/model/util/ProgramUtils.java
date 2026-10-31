@@ -43,10 +43,13 @@ import org.teavm.model.instructions.ConstructInstruction;
 import org.teavm.model.instructions.InvocationType;
 import org.teavm.model.instructions.InvokeInstruction;
 import org.teavm.model.instructions.RaiseInstruction;
+import org.teavm.model.instructions.StringConstantInstruction;
 
 public final class ProgramUtils {
     private static final MethodReference NPE_INIT_METHOD = new MethodReference(
             NullPointerException.class, "<init>", void.class);
+    public static final MethodReference NPE_INIT_MESSAGE_METHOD = new MethodReference(
+            NullPointerException.class, "<init>", String.class, void.class);
 
     private ProgramUtils() {
     }
@@ -229,6 +232,18 @@ public final class ProgramUtils {
         RaiseInstruction raise = new RaiseInstruction();
         raise.setException(newNPE.getReceiver());
         raise.setLocation(location);
+
+        // A dereference known to see null still reports the JDK's helpful message.
+        String message = location != null ? location.getNullMessage() : null;
+        if (message != null) {
+            StringConstantInstruction messageConstant = new StringConstantInstruction();
+            messageConstant.setConstant(message);
+            messageConstant.setReceiver(program.createVariable());
+            messageConstant.setLocation(location);
+            initNPE.setMethod(NPE_INIT_MESSAGE_METHOD);
+            initNPE.setArguments(messageConstant.getReceiver());
+            return Arrays.asList(newNPE, messageConstant, initNPE, raise);
+        }
 
         return Arrays.asList(newNPE, initNPE, raise);
     }

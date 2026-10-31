@@ -261,7 +261,7 @@ public class Interpreter {
                             result = a % b;
                             break;
                         case COMPARE:
-                            result = Float.compare(a, b);
+                            result = a > b ? 1 : a < b ? -1 : a == b ? 0 : 1;
                             break;
                         case AND:
                         case OR:
@@ -295,7 +295,7 @@ public class Interpreter {
                             result = a % b;
                             break;
                         case COMPARE:
-                            result = Double.compare(a, b);
+                            result = a > b ? 1 : a < b ? -1 : a == b ? 0 : 1;
                             break;
                         case AND:
                         case OR:

@@ -21,6 +21,7 @@ import java.util.Collection;
 import java.util.NoSuchElementException;
 import java.util.Objects;
 import org.teavm.classlib.PlatformDetector;
+import org.teavm.classlib.java.io.TSerializable;
 import org.teavm.classlib.java.lang.TInterruptedException;
 import org.teavm.classlib.java.lang.TThread;
 import org.teavm.classlib.java.lang.TThreadInterruptHandler;
@@ -34,7 +35,7 @@ import org.teavm.platform.PlatformQueue;
 import org.teavm.platform.PlatformRunnable;
 import org.teavm.runtime.EventQueue;
 
-public class TArrayBlockingQueue<E> extends TAbstractQueue<E> implements TBlockingQueue<E> {
+public class TArrayBlockingQueue<E> extends TAbstractQueue<E> implements TBlockingQueue<E>, TSerializable {
     private Object[] array;
     private int head;
     private int tail;

@@ -15,12 +15,16 @@
  */
 package org.teavm.classlib.java.util;
 
+import org.teavm.classlib.java.io.TSerializable;
+import org.teavm.classlib.java.lang.TCloneNotSupportedException;
+import org.teavm.classlib.java.lang.TCloneable;
+
 /**
  *
  * @author Alexey Andreev
  * @param <E>
  */
-public class TTreeSet<E> extends TAbstractSet<E> implements TNavigableSet<E> {
+public class TTreeSet<E> extends TAbstractSet<E> implements TNavigableSet<E>, TCloneable, TSerializable {
     private static final Object VALUE = new Object();
     private TTreeMap<E, Object> map;
 
@@ -156,5 +160,19 @@ public class TTreeSet<E> extends TAbstractSet<E> implements TNavigableSet<E> {
     @Override
     public TNavigableSet<E> tailSet(E fromElement, boolean inclusive) {
         return map.tailMap(fromElement, inclusive).navigableKeySet();
+    }
+
+    // As the JDK: a shallow copy of the same class with its own map, keeping the comparator.
+    @Override
+    @SuppressWarnings("unchecked")
+    public Object clone() {
+        TTreeSet<E> copy;
+        try {
+            copy = (TTreeSet<E>) super.clone();
+        } catch (TCloneNotSupportedException e) {
+            throw new InternalError(e);
+        }
+        copy.map = new TTreeMap<>((TSortedMap<E, Object>) map);
+        return copy;
     }
 }

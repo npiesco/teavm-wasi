@@ -16,6 +16,7 @@
 package org.teavm.classlib.java.lang;
 
 import java.io.InputStream;
+import java.lang.annotation.Repeatable;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -32,8 +33,10 @@ import org.teavm.classlib.impl.reflection.Flags;
 import org.teavm.classlib.impl.reflection.JSClass;
 import org.teavm.classlib.impl.reflection.JSField;
 import org.teavm.classlib.impl.reflection.JSMethodMember;
+import org.teavm.classlib.java.io.TSerializable;
 import org.teavm.classlib.java.lang.annotation.TAnnotation;
 import org.teavm.classlib.java.lang.reflect.TAnnotatedElement;
+import org.teavm.classlib.java.lang.reflect.TArray;
 import org.teavm.classlib.java.lang.reflect.TConstructor;
 import org.teavm.classlib.java.lang.reflect.TField;
 import org.teavm.classlib.java.lang.reflect.TMethod;
@@ -53,7 +56,7 @@ import org.teavm.runtime.Mutator;
 import org.teavm.runtime.RuntimeClass;
 import org.teavm.runtime.RuntimeObject;
 
-public class TClass<T> extends TObject implements TAnnotatedElement, TType {
+public class TClass<T> extends TObject implements TSerializable, TType, TAnnotatedElement {
     String name;
     String simpleName;
     String canonicalName;
@@ -146,11 +149,10 @@ public class TClass<T> extends TObject implements TAnnotatedElement, TType {
         if (simpleName == null) {
             if (isArray()) {
                 simpleName = getComponentType().getSimpleName() + "[]";
-            } else if (getEnclosingClass() != null) {
+            } else if (Platform.getSimpleName(platformClass) != null) {
                 simpleName = Platform.getSimpleName(platformClass);
-                if (simpleName == null) {
-                    simpleName = "";
-                }
+            } else if (getEnclosingClass() != null) {
+                simpleName = "";
             } else {
                 String name = Platform.getName(platformClass);
                 int lastDollar = name.lastIndexOf('$');
@@ -244,7 +246,7 @@ public class TClass<T> extends TObject implements TAnnotatedElement, TType {
         if (PlatformDetector.isJavaScript()) {
             return (platformClass.getMetadata().getAccessLevel() & Flags.SYNTHETIC) != 0;
         } else {
-            return (RuntimeClass.getClass(Address.ofObject(this).toStructure()).flags & RuntimeClass.SYNTHETIC) != 0;
+            return (lowLevelFlags() & RuntimeClass.SYNTHETIC) != 0;
         }
     }
 
@@ -303,6 +305,11 @@ public class TClass<T> extends TObject implements TAnnotatedElement, TType {
     }
 
     @Unmanaged
+    private int lowLevelFlags() {
+        return Address.ofObject(this).<RuntimeClass>toStructure().flags;
+    }
+
+    @Unmanaged
     private boolean isInterfaceLowLevel() {
         return (Address.ofObject(this).<RuntimeClass>toStructure().flags & RuntimeClass.INTERFACE) != 0;
     }
@@ -310,6 +317,11 @@ public class TClass<T> extends TObject implements TAnnotatedElement, TType {
     public boolean isLocalClass() {
         return (platformClass.getMetadata().getFlags() & Flags.SYNTHETIC) != 0
                 && getEnclosingClass() != null;
+    }
+
+    // JDK: a class nested in another with no simple name in its InnerClasses entry (getSimpleName is then empty).
+    public boolean isAnonymousClass() {
+        return !isArray() && getEnclosingClass() != null && getSimpleName().isEmpty();
     }
 
     public boolean isMemberClass() {
@@ -740,6 +752,18 @@ public class TClass<T> extends TObject implements TAnnotatedElement, TType {
         return result;
     }
     public int getModifiers() {
+        if (PlatformDetector.isWebAssembly()) {
+            // As the JDK: primitives are public abstract final, and an array has its component's access with
+            // abstract and final.
+            if (isPrimitive()) {
+                return TModifier.PUBLIC | TModifier.ABSTRACT | TModifier.FINAL;
+            }
+            if (isArray()) {
+                int access = TModifier.PUBLIC | TModifier.PRIVATE | TModifier.PROTECTED;
+                return (getComponentType().getModifiers() & access) | TModifier.ABSTRACT | TModifier.FINAL;
+            }
+            return lowLevelFlags() >>> RuntimeClass.MODIFIERS_SHIFT;
+        }
         int flags = platformClass.getMetadata().getFlags();
         int accessLevel = platformClass.getMetadata().getAccessLevel();
         return Flags.getModifiers(flags, accessLevel);
@@ -939,6 +963,9 @@ public class TClass<T> extends TObject implements TAnnotatedElement, TType {
 
     @Override
     public boolean isAnnotationPresent(TClass<? extends TAnnotation> annotationClass) {
+        if (PlatformDetector.isWebAssembly()) {
+            return getAnnotation(annotationClass) != null;
+        }
         ensureAnnotationsByType();
         return annotationsByType.containsKey(annotationClass);
     }
@@ -946,12 +973,18 @@ public class TClass<T> extends TObject implements TAnnotatedElement, TType {
     @SuppressWarnings("unchecked")
     @Override
     public <S extends TAnnotation> S getAnnotation(TClass<S> annotationClass) {
+        if (PlatformDetector.isWebAssembly()) {
+            return (S) findAnnotation(wasmAnnotations(), annotationClass);
+        }
         ensureAnnotationsByType();
         return (S) annotationsByType.get(annotationClass);
     }
 
     @Override
     public TAnnotation[] getAnnotations() {
+        if (PlatformDetector.isWebAssembly()) {
+            return wasmAnnotations().clone();
+        }
         if (annotationsCache == null) {
             annotationsCache = (TAnnotation[]) Platform.getAnnotations(getPlatformClass());
         }
@@ -960,7 +993,34 @@ public class TClass<T> extends TObject implements TAnnotatedElement, TType {
 
     @Override
     public TAnnotation[] getDeclaredAnnotations() {
+        if (PlatformDetector.isWebAssembly()) {
+            return wasmDeclared().clone();
+        }
         return getAnnotations();
+    }
+
+    @Override
+    public <A extends TAnnotation> A[] getDeclaredAnnotationsByType(Class<A> annotationClass) {
+        if (PlatformDetector.isWebAssembly()) {
+            return directlyAndIndirectlyPresent(wasmDeclared(), annotationClass);
+        }
+        return TAnnotatedElement.super.getDeclaredAnnotationsByType(annotationClass);
+    }
+
+    // JDK Class.getAnnotationsByType: the directly and indirectly present annotations, or, when there are none and
+    // the annotation type is @Inherited, those of the nearest superclass that has some.
+    @Override
+    public <A extends TAnnotation> A[] getAnnotationsByType(Class<A> annotationClass) {
+        if (!PlatformDetector.isWebAssembly()) {
+            return TAnnotatedElement.super.getAnnotationsByType(annotationClass);
+        }
+        A[] result = directlyAndIndirectlyPresent(wasmDeclared(), annotationClass);
+        if (wasmInheritedAnnotation((TClass<?>) (Object) annotationClass)) {
+            for (TClass<?> cls = getSuperclass(); result.length == 0 && cls != null; cls = cls.getSuperclass()) {
+                result = directlyAndIndirectlyPresent(cls.wasmDeclared(), annotationClass);
+            }
+        }
+        return result;
     }
 
     private void ensureAnnotationsByType() {
@@ -973,6 +1033,102 @@ public class TClass<T> extends TObject implements TAnnotatedElement, TType {
         }
     }
 
+    // WebAssembly: a Class is the runtime class record, so annotations are cached in static maps, keeping one set of
+    // instances per class as the JDK does.
+    private static Map<TClass<?>, TAnnotation[]> wasmDeclaredCache;
+    private static Map<TClass<?>, TAnnotation[]> wasmAnnotationCache;
+
+    private static native TAnnotation[] wasmDeclaredAnnotations(TClass<?> cls);
+
+    private static native boolean wasmInheritedAnnotation(TClass<?> annotationType);
+
+    private static native TAnnotation[] wasmContainedAnnotations(TAnnotation container);
+
+    private TAnnotation[] wasmDeclared() {
+        if (wasmDeclaredCache == null) {
+            wasmDeclaredCache = new HashMap<>();
+        }
+        TAnnotation[] result = wasmDeclaredCache.get(this);
+        if (result == null) {
+            result = wasmDeclaredAnnotations(this);
+            wasmDeclaredCache.put(this, result);
+        }
+        return result;
+    }
+
+    // JDK Class.getAnnotations: the superclass's @Inherited annotations, then the declared ones, a declared
+    // annotation replacing an inherited one of the same type.
+    private TAnnotation[] wasmAnnotations() {
+        if (wasmAnnotationCache == null) {
+            wasmAnnotationCache = new HashMap<>();
+        }
+        TAnnotation[] result = wasmAnnotationCache.get(this);
+        if (result == null) {
+            Map<TClass<?>, TAnnotation> annotations = new LinkedHashMap<>();
+            TClass<?> superclass = getSuperclass();
+            if (superclass != null) {
+                for (TAnnotation annotation : superclass.wasmAnnotations()) {
+                    TClass<?> type = annotationType(annotation);
+                    if (wasmInheritedAnnotation(type)) {
+                        annotations.put(type, annotation);
+                    }
+                }
+            }
+            for (TAnnotation annotation : wasmDeclared()) {
+                annotations.put(annotationType(annotation), annotation);
+            }
+            result = annotations.values().toArray(new TAnnotation[0]);
+            wasmAnnotationCache.put(this, result);
+        }
+        return result;
+    }
+
+    private static TClass<?> annotationType(TAnnotation annotation) {
+        return (TClass<?>) (Object) annotation.annotationType();
+    }
+
+    private static TAnnotation findAnnotation(TAnnotation[] annotations, TClass<?> type) {
+        for (TAnnotation annotation : annotations) {
+            if (annotationType(annotation) == type) {
+                return annotation;
+            }
+        }
+        return null;
+    }
+
+    // JDK AnnotationSupport.getDirectlyAndIndirectlyPresent: the direct annotation and the contents of its
+    // @Repeatable container, the container's contents first when the container is declared first.
+    @SuppressWarnings("unchecked")
+    private static <A extends TAnnotation> A[] directlyAndIndirectlyPresent(TAnnotation[] declared,
+            Class<A> annotationClass) {
+        TClass<?> type = (TClass<?>) (Object) annotationClass;
+        List<TAnnotation> result = new ArrayList<>();
+        TAnnotation direct = findAnnotation(declared, type);
+        if (direct != null) {
+            result.add(direct);
+        }
+        TAnnotation repeatable = findAnnotation(type.wasmDeclared(), (TClass<?>) (Object) Repeatable.class);
+        if (repeatable != null) {
+            TClass<?> containerType = (TClass<?>) (Object) ((Repeatable) (Object) repeatable).value();
+            TAnnotation container = findAnnotation(declared, containerType);
+            TAnnotation[] contained = container != null ? wasmContainedAnnotations(container) : null;
+            if (contained != null && contained.length > 0) {
+                boolean containerFirst = direct == null;
+                for (TAnnotation annotation : declared) {
+                    TClass<?> declaredType = annotationType(annotation);
+                    if (declaredType == containerType) {
+                        containerFirst = true;
+                        break;
+                    } else if (declaredType == type) {
+                        break;
+                    }
+                }
+                result.addAll(containerFirst ? 0 : 1, Arrays.asList(contained));
+            }
+        }
+        A[] array = (A[]) (Object) TArray.newInstance(annotationClass, result.size());
+        return result.toArray(array);
+    }
     public InputStream getResourceAsStream(String name) {
         return getClassLoader().getResourceAsStream(resolveResourceName(name));
     }
@@ -998,9 +1154,13 @@ public class TClass<T> extends TObject implements TAnnotatedElement, TType {
         return name;
     }
 
+    // JDK: arrays and primitive types have no package; a class outside any package is in the unnamed package "".
     public TPackage getPackage() {
+        if (isArray() || isPrimitive()) {
+            return null;
+        }
         String name = (String) (Object) getName();
-        name = name.substring(0, name.lastIndexOf('.') + 1);
-        return TPackage.getPackage(name);
+        int dot = name.lastIndexOf('.');
+        return TPackage.definePackage(dot < 0 ? "" : name.substring(0, dot));
     }
 }

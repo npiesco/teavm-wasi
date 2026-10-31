@@ -42,7 +42,7 @@ import org.teavm.classlib.java.util.stream.longimpl.TSingleLongStreamImpl;
 import org.teavm.classlib.java.util.stream.longimpl.TSpecializedConcatLongStream;
 
 public interface TLongStream extends TBaseStream<Long, TLongStream> {
-    interface Builder {
+    interface Builder extends LongConsumer {
         void accept(long t);
 
         default Builder add(long t) {

@@ -18,6 +18,7 @@ package org.teavm.ast.optimization;
 import org.teavm.ast.BinaryExpr;
 import org.teavm.ast.BinaryOperation;
 import org.teavm.ast.Expr;
+import org.teavm.ast.OperationType;
 import org.teavm.ast.UnaryExpr;
 import org.teavm.ast.UnaryOperation;
 
@@ -35,6 +36,18 @@ final class ExprOptimizer {
             BinaryExpr binary = (BinaryExpr) expr;
             Expr a = binary.getFirstOperand();
             Expr b = binary.getSecondOperand();
+            // With a NaN operand every ordering comparison is false, so !(a < b) is not a >= b on floats.
+            if (binary.getType() == OperationType.FLOAT || binary.getType() == OperationType.DOUBLE) {
+                switch (binary.getOperation()) {
+                    case LESS:
+                    case LESS_OR_EQUALS:
+                    case GREATER:
+                    case GREATER_OR_EQUALS:
+                        return Expr.invert(expr);
+                    default:
+                        break;
+                }
+            }
             switch (binary.getOperation()) {
                 case EQUALS:
                     return Expr.binary(BinaryOperation.NOT_EQUALS, binary.getType(), a, b, expr.getLocation());

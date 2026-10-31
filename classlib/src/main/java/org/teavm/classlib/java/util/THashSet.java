@@ -27,7 +27,7 @@ import org.teavm.interop.Rename;
  * @author Alexey Andreev
  * @param <E>
  */
-public class THashSet<E> extends TAbstractSet<E> implements TCloneable, TSerializable {
+public class THashSet<E> extends TAbstractSet<E> implements TSet<E>, TCloneable, TSerializable {
     transient THashMap<E, THashSet<E>> backingMap;
 
     /**
@@ -68,7 +68,8 @@ public class THashSet<E> extends TAbstractSet<E> implements TCloneable, TSeriali
      *            the collection of elements to add.
      */
     public THashSet(TCollection<? extends E> collection) {
-        this(new THashMap<E, THashSet<E>>(collection.size() < 6 ? 11 : collection.size() * 2));
+        // JDK 21: HashMap.newHashMap(Math.max(c.size(), 12)).
+        this(new THashMap<E, THashSet<E>>(THashMap.capacityFor(Math.max(collection.size(), 12))));
         for (TIterator<? extends E> iter = collection.iterator(); iter.hasNext();) {
             add(iter.next());
         }
@@ -110,8 +111,14 @@ public class THashSet<E> extends TAbstractSet<E> implements TCloneable, TSeriali
      * @see java.lang.Cloneable
      */
     @Rename("clone")
-    @SuppressWarnings("unchecked")
     public TObject clone0() {
+        return copy();
+    }
+
+    // JDK HashSet.clone: a shallow copy over a clone of the backing map (HashMap.clone sizes it from the element
+    // count). Both clone entry points share it; calls are not renamed, so neither may call clone0.
+    @SuppressWarnings("unchecked")
+    private THashSet<E> copy() {
         try {
             THashSet<E> clone = (THashSet<E>) super.clone();
             clone.backingMap = (THashMap<E, THashSet<E>>) backingMap.clone();
@@ -185,6 +192,6 @@ public class THashSet<E> extends TAbstractSet<E> implements TCloneable, TSeriali
 
     @Override
     public Object clone() {
-        return new THashSet<>(this);
+        return copy();
     }
 }

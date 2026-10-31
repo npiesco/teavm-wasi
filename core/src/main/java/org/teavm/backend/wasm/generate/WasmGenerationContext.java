@@ -37,9 +37,11 @@ import org.teavm.model.MethodReference;
 import org.teavm.model.ValueType;
 import org.teavm.model.classes.TagRegistry;
 import org.teavm.model.classes.VirtualTableProvider;
+import org.teavm.model.lowlevel.Characteristics;
 
 public class WasmGenerationContext {
     private ClassReaderSource classSource;
+    private Characteristics characteristics;
     private WasmModule module;
     private Diagnostics diagnostics;
     private VirtualTableProvider vtableProvider;
@@ -133,6 +135,13 @@ public class WasmGenerationContext {
 
     public ClassReaderSource getClassSource() {
         return classSource;
+    }
+
+    public Characteristics getCharacteristics() {
+        if (characteristics == null) {
+            characteristics = new Characteristics(classSource);
+        }
+        return characteristics;
     }
 
     public ValueType getFieldType(FieldReference fieldReference) {

@@ -20,7 +20,9 @@ public class TFormatFlagsConversionMismatchException extends TIllegalFormatExcep
     private char conversion;
 
     public TFormatFlagsConversionMismatchException(String flags, char conversion) {
-        super("Illegal format flags " + flags + " for conversion " + conversion);
+        if (flags == null) {
+            throw new NullPointerException();
+        }
         this.flags = flags;
         this.conversion = conversion;
     }
@@ -31,5 +33,10 @@ public class TFormatFlagsConversionMismatchException extends TIllegalFormatExcep
 
     public char getConversion() {
         return conversion;
+    }
+
+    @Override
+    public String getMessage() {
+        return "Conversion = " + conversion + ", Flags = " + flags;
     }
 }

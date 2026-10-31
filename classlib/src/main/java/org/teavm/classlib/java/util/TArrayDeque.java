@@ -16,9 +16,11 @@
 package org.teavm.classlib.java.util;
 
 import java.util.Arrays;
+import org.teavm.classlib.java.io.TSerializable;
 import org.teavm.classlib.java.lang.*;
+import org.teavm.classlib.java.lang.TCloneable;
 
-public class TArrayDeque<E> extends TAbstractCollection<E> implements TDeque<E> {
+public class TArrayDeque<E> extends TAbstractCollection<E> implements TDeque<E>, TCloneable, TSerializable {
     private int version;
     private Object[] array;
     private int head;
@@ -375,7 +377,7 @@ public class TArrayDeque<E> extends TAbstractCollection<E> implements TDeque<E> 
     }
 
     @Override
-    protected TArrayDeque<E> clone() {
+    public TArrayDeque<E> clone() {
         return new TArrayDeque<>(this);
     }
 }

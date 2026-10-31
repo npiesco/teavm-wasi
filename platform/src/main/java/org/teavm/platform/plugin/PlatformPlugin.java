@@ -74,6 +74,8 @@ public class PlatformPlugin implements TeaVMPlugin, MetadataRegistration {
         if (!isBootstrap()) {
             TeaVMWasmHost wasmHost = host.getExtension(TeaVMWasmHost.class);
             if (wasmHost != null) {
+                // Resources are raw data, not objects with a class record, so casts to them must not be checked.
+                host.add(new ResourceCTransformer());
                 metadataGeneratorConsumers.add((constructor, method, generator) -> {
                     wasmHost.add(ctx -> new MetadataIntrinsic(ctx.getClassSource(), ctx.getClassLoader(),
                             ctx.getServices(), ctx.getProperties(), constructor, method, generator));

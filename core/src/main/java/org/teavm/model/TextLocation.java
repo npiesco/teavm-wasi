@@ -25,6 +25,8 @@ public class TextLocation implements Serializable {
     private String fileName;
     private int line;
     private InliningInfo inlining;
+    // The JDK's helpful NullPointerException message for the instruction at this location, if it can throw one.
+    private String nullMessage;
     private transient int hash;
 
     public TextLocation(String fileName, int line) {
@@ -32,9 +34,23 @@ public class TextLocation implements Serializable {
     }
 
     public TextLocation(String fileName, int line, InliningInfo inlining) {
+        this(fileName, line, inlining, null);
+    }
+
+    public TextLocation(String fileName, int line, InliningInfo inlining, String nullMessage) {
         this.fileName = fileName;
         this.line = line;
         this.inlining = inlining;
+        this.nullMessage = nullMessage;
+    }
+
+    public String getNullMessage() {
+        return nullMessage;
+    }
+
+    public TextLocation withNullMessage(String nullMessage) {
+        return Objects.equals(nullMessage, this.nullMessage) ? this
+                : new TextLocation(fileName, line, inlining, nullMessage);
     }
 
     public String getFileName() {
@@ -84,6 +100,7 @@ public class TextLocation implements Serializable {
             result = prime * result + (fileName == null ? 0 : fileName.hashCode());
             result = prime * result + line;
             result = prime * result + (inlining != null ? inlining.hashCode() : 0);
+            result = prime * result + (nullMessage != null ? nullMessage.hashCode() : 0);
             hash = result;
         }
         return result;
@@ -99,7 +116,7 @@ public class TextLocation implements Serializable {
         }
         TextLocation other = (TextLocation) obj;
         return Objects.equals(fileName, other.fileName) && line == other.line
-                && Objects.equals(inlining, other.inlining);
+                && Objects.equals(inlining, other.inlining) && Objects.equals(nullMessage, other.nullMessage);
     }
 
     @Override

@@ -17,9 +17,10 @@ package org.teavm.classlib.java.text;
 
 import org.teavm.classlib.impl.unicode.CLDRHelper;
 import org.teavm.classlib.impl.unicode.DecimalData;
+import org.teavm.classlib.java.io.TSerializable;
 import org.teavm.classlib.java.util.TLocale;
 
-public class TDecimalFormatSymbols implements Cloneable {
+public class TDecimalFormatSymbols implements Cloneable, TSerializable {
     private TLocale locale;
     private char zeroDigit;
     private char groupingSeparator;

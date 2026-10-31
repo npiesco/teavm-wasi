@@ -19,11 +19,18 @@ public class TUnknownFormatConversionException extends TIllegalFormatException {
     private String conversion;
 
     public TUnknownFormatConversionException(String conversion) {
-        super("Unknown format conversion: " + conversion);
+        if (conversion == null) {
+            throw new NullPointerException();
+        }
         this.conversion = conversion;
     }
 
     public String getConversion() {
         return conversion;
+    }
+
+    @Override
+    public String getMessage() {
+        return "Conversion = '" + conversion + "'";
     }
 }
