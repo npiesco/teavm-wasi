@@ -26,7 +26,6 @@ import org.teavm.classlib.java.lang.TComparable;
 import org.teavm.classlib.java.lang.TDouble;
 import org.teavm.classlib.java.lang.TFloat;
 import org.teavm.classlib.java.lang.TIllegalArgumentException;
-import org.teavm.classlib.java.lang.TInteger;
 import org.teavm.classlib.java.lang.TMath;
 import org.teavm.classlib.java.lang.TObject;
 import org.teavm.classlib.java.lang.TStringBuilder;
@@ -1369,14 +1368,14 @@ public class TArrays extends TObject {
         return true;
     }
 
+    // The element hashes and the 31 * h + e combination are those the JDK specifies, so results match it.
     public static int hashCode(boolean[] a) {
         if (a == null) {
             return 0;
         }
-        int hash = 0xA5A537FC;
+        int hash = 1;
         for (int i = 0; i < a.length; ++i) {
-            int h = a[i] ? 0x12345678 : 0x87654321;
-            hash = TInteger.rotateLeft(h, 4) ^ TInteger.rotateRight(h, 7) ^ TInteger.rotateLeft(hash, 13);
+            hash = 31 * hash + (a[i] ? 1231 : 1237);
         }
         return hash;
     }
@@ -1385,10 +1384,9 @@ public class TArrays extends TObject {
         if (a == null) {
             return 0;
         }
-        int hash = 0xA5A537FC;
+        int hash = 1;
         for (int i = 0; i < a.length; ++i) {
-            int h = (int) (a[i] >>> 32) ^ (int) a[i];
-            hash = TInteger.rotateLeft(h, 4) ^ TInteger.rotateRight(h, 7) ^ TInteger.rotateLeft(hash, 13);
+            hash = 31 * hash + (int) (a[i] ^ (a[i] >>> 32));
         }
         return hash;
     }
@@ -1441,10 +1439,9 @@ public class TArrays extends TObject {
         if (a == null) {
             return 0;
         }
-        int hash = 0xA5A537FC;
+        int hash = 1;
         for (int i = 0; i < a.length; ++i) {
-            int h = TFloat.floatToIntBits(a[i]);
-            hash = TInteger.rotateLeft(h, 4) ^ TInteger.rotateRight(h, 7) ^ TInteger.rotateLeft(hash, 13);
+            hash = 31 * hash + TFloat.floatToIntBits(a[i]);
         }
         return hash;
     }
@@ -1453,11 +1450,10 @@ public class TArrays extends TObject {
         if (a == null) {
             return 0;
         }
-        int hash = 0xA5A537FC;
+        int hash = 1;
         for (int i = 0; i < a.length; ++i) {
-            long lh = TDouble.doubleToLongBits(a[i]);
-            int h = (int) lh ^ (int) (lh >> 32);
-            hash = TInteger.rotateLeft(h, 4) ^ TInteger.rotateRight(h, 7) ^ TInteger.rotateLeft(hash, 13);
+            long bits = TDouble.doubleToLongBits(a[i]);
+            hash = 31 * hash + (int) (bits ^ (bits >>> 32));
         }
         return hash;
     }
@@ -1466,10 +1462,9 @@ public class TArrays extends TObject {
         if (a == null) {
             return 0;
         }
-        int hash = 0xA5A537FC;
+        int hash = 1;
         for (int i = 0; i < a.length; ++i) {
-            int h = TObjects.hashCode(a[i]) ^ 0x1F7A58E0;
-            hash = TInteger.rotateLeft(h, 4) ^ TInteger.rotateRight(h, 7) ^ TInteger.rotateLeft(hash, 13);
+            hash = 31 * hash + TObjects.hashCode(a[i]);
         }
         return hash;
     }
@@ -1478,32 +1473,32 @@ public class TArrays extends TObject {
         if (a == null) {
             return 0;
         }
-        int hash = 0xA5A537FC;
+        int hash = 1;
         for (int i = 0; i < a.length; ++i) {
             Object el = a[i];
             int h;
-            if (a[i] instanceof boolean[]) {
-                h = hashCode((boolean[]) el);
-            } else if (a[i] instanceof byte[]) {
-                h = hashCode((byte[]) el);
-            } else if (a[i] instanceof short[]) {
-                h = hashCode((short[]) el);
-            } else if (a[i] instanceof char[]) {
-                h = hashCode((char[]) el);
-            } else if (a[i] instanceof int[]) {
-                h = hashCode((int[]) el);
-            } else if (a[i] instanceof long[]) {
-                h = hashCode((long[]) el);
-            } else if (a[i] instanceof float[]) {
-                h = hashCode((float[]) el);
-            } else if (a[i] instanceof double[]) {
-                h = hashCode((double[]) el);
-            } else if (a[i] instanceof Object[]) {
+            if (el instanceof Object[]) {
                 h = deepHashCode((Object[]) el);
+            } else if (el instanceof boolean[]) {
+                h = hashCode((boolean[]) el);
+            } else if (el instanceof byte[]) {
+                h = hashCode((byte[]) el);
+            } else if (el instanceof short[]) {
+                h = hashCode((short[]) el);
+            } else if (el instanceof char[]) {
+                h = hashCode((char[]) el);
+            } else if (el instanceof int[]) {
+                h = hashCode((int[]) el);
+            } else if (el instanceof long[]) {
+                h = hashCode((long[]) el);
+            } else if (el instanceof float[]) {
+                h = hashCode((float[]) el);
+            } else if (el instanceof double[]) {
+                h = hashCode((double[]) el);
             } else {
-                h = TObjects.hashCode(el) ^ 0x1F7A58E0;
+                h = TObjects.hashCode(el);
             }
-            hash = TInteger.rotateLeft(h, 4) ^ TInteger.rotateRight(h, 7) ^ TInteger.rotateLeft(hash, 13);
+            hash = 31 * hash + h;
         }
         return hash;
     }

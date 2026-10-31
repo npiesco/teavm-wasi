@@ -40,6 +40,7 @@ import org.teavm.interop.Address;
 import org.teavm.interop.DelegateTo;
 import org.teavm.interop.Import;
 import org.teavm.interop.NoSideEffects;
+import org.teavm.interop.Structure;
 import org.teavm.interop.Unmanaged;
 import org.teavm.interop.wasi.Wasi;
 import org.teavm.interop.wasi.Wasi.ErrnoException;
@@ -104,39 +105,63 @@ public final class TSystem extends TObject {
         return new TSecurityManager();
     }
 
+    // Checks in the order and with the messages of HotSpot's TypeArrayKlass and ObjArrayKlass copy_array.
     public static void arraycopy(TObject src, int srcPos, TObject dest, int destPos, int length) {
         if (src == null || dest == null) {
-            throw new TNullPointerException("Either src or dest is null");
+            throw new TNullPointerException();
         }
-        if (srcPos < 0 || destPos < 0 || length < 0 || srcPos + length > TArray.getLength(src)
-                || destPos + length > TArray.getLength(dest)) {
-            throw new TIndexOutOfBoundsException();
+        Class<?> srcType = src.getClass().getComponentType();
+        if (srcType == null) {
+            throw new TArrayStoreException("arraycopy: source type " + src.getClass().getName() + " is not an array");
         }
-        if (src != dest) {
-            Class<?> srcType = src.getClass().getComponentType();
-            Class<?> targetType = dest.getClass().getComponentType();
-            if (srcType == null || targetType == null) {
-                throw new TArrayStoreException();
-            }
-            if (srcType != targetType) {
-                if (!srcType.isPrimitive() && !targetType.isPrimitive()) {
-                    Object[] srcArray = (Object[]) (Object) src;
-                    int pos = srcPos;
-                    for (int i = 0; i < length; ++i) {
-                        Object elem = srcArray[pos++];
-                        if (!targetType.isInstance(elem)) {
-                            doArrayCopy(src, srcPos, dest, destPos, i);
-                            throw new TArrayStoreException();
-                        }
-                    }
-                    doArrayCopy(src, srcPos, dest, destPos, length);
-                    return;
-                } else if (!srcType.isPrimitive() || !targetType.isPrimitive()) {
-                    throw new TArrayStoreException();
+        Class<?> targetType = dest.getClass().getComponentType();
+        if (targetType == null) {
+            throw new TArrayStoreException("arraycopy: destination type " + dest.getClass().getName()
+                    + " is not an array");
+        }
+        if (srcType.isPrimitive() ? srcType != targetType : targetType.isPrimitive()) {
+            throw new TArrayStoreException("arraycopy: type mismatch: can not copy " + arrayKind(srcType)
+                    + "[] into " + arrayKind(targetType) + "[]");
+        }
+        int srcLength = TArray.getLength(src);
+        int destLength = TArray.getLength(dest);
+        if (srcPos < 0) {
+            throw new TArrayIndexOutOfBoundsException("arraycopy: source index " + srcPos + " out of bounds for "
+                    + arrayKind(srcType) + "[" + srcLength + "]");
+        }
+        if (destPos < 0) {
+            throw new TArrayIndexOutOfBoundsException("arraycopy: destination index " + destPos
+                    + " out of bounds for " + arrayKind(targetType) + "[" + destLength + "]");
+        }
+        if (length < 0) {
+            throw new TArrayIndexOutOfBoundsException("arraycopy: length " + length + " is negative");
+        }
+        if ((long) srcPos + length > srcLength) {
+            throw new TArrayIndexOutOfBoundsException("arraycopy: last source index " + ((long) srcPos + length)
+                    + " out of bounds for " + arrayKind(srcType) + "[" + srcLength + "]");
+        }
+        if ((long) destPos + length > destLength) {
+            throw new TArrayIndexOutOfBoundsException("arraycopy: last destination index "
+                    + ((long) destPos + length) + " out of bounds for " + arrayKind(targetType) + "[" + destLength
+                    + "]");
+        }
+        if (!srcType.isPrimitive() && !targetType.isAssignableFrom(srcType)) {
+            Object[] srcArray = (Object[]) (Object) src;
+            for (int i = 0; i < length; ++i) {
+                Object elem = srcArray[srcPos + i];
+                if (elem != null && !targetType.isInstance(elem)) {
+                    doArrayCopy(src, srcPos, dest, destPos, i);
+                    throw new TArrayStoreException("arraycopy: element type mismatch: can not cast one of the "
+                            + "elements of " + srcType.getName() + "[] to the type of the destination array, "
+                            + targetType.getName());
                 }
             }
         }
         doArrayCopy(src, srcPos, dest, destPos, length);
+    }
+
+    private static String arrayKind(Class<?> componentType) {
+        return componentType.isPrimitive() ? componentType.getName() : "object array";
     }
 
     @GeneratedBy(SystemNativeGenerator.class)
@@ -153,11 +178,12 @@ public final class TSystem extends TObject {
             GC.writeBarrier(dest);
         }
 
-        Address srcAddress = Address.align(src.toAddress().add(RuntimeArray.class, 1), itemSize);
-        srcAddress = srcAddress.add(itemSize * srcPos);
-
-        Address destAddress = Address.align(dest.toAddress().add(RuntimeArray.class, 1), itemSize);
-        destAddress = destAddress.add(itemSize * destPos);
+        // Element data sits at an offset from the array start aligned to the item size, as the allocator and the
+        // code generator lay it out; heap objects themselves are only word-aligned, so the absolute address must not
+        // be aligned instead.
+        int dataOffset = Address.align(Address.fromInt(Structure.sizeOf(RuntimeArray.class)), itemSize).toInt();
+        Address srcAddress = src.toAddress().add(dataOffset + itemSize * srcPos);
+        Address destAddress = dest.toAddress().add(dataOffset + itemSize * destPos);
 
         Allocator.moveMemoryBlock(srcAddress, destAddress, length * itemSize);
     }

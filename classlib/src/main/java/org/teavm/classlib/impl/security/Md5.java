@@ -16,9 +16,9 @@
 package org.teavm.classlib.impl.security;
 
 /**
- * MD5 as specified by RFC 1321: incremental input, a 16-byte digest, and reset for reuse.
+ * MD5 as specified by RFC 1321.
  */
-public final class Md5 {
+public final class Md5 extends BlockDigest {
     private static final int[] SHIFTS = {
         7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22,
         5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20,
@@ -27,79 +27,39 @@ public final class Md5 {
     };
     // floor(abs(sin(i + 1)) * 2^32), as listed in RFC 1321.
     private static final int[] SINES = {
-        0xD76AA478, 0xE8C7B756, 0x242070DB, 0xC1BDCEEE,
-        0xF57C0FAF, 0x4787C62A, 0xA8304613, 0xFD469501,
-        0x698098D8, 0x8B44F7AF, 0xFFFF5BB1, 0x895CD7BE,
-        0x6B901122, 0xFD987193, 0xA679438E, 0x49B40821,
-        0xF61E2562, 0xC040B340, 0x265E5A51, 0xE9B6C7AA,
-        0xD62F105D, 0x02441453, 0xD8A1E681, 0xE7D3FBC8,
-        0x21E1CDE6, 0xC33707D6, 0xF4D50D87, 0x455A14ED,
-        0xA9E3E905, 0xFCEFA3F8, 0x676F02D9, 0x8D2A4C8A,
-        0xFFFA3942, 0x8771F681, 0x6D9D6122, 0xFDE5380C,
-        0xA4BEEA44, 0x4BDECFA9, 0xF6BB4B60, 0xBEBFBC70,
-        0x289B7EC6, 0xEAA127FA, 0xD4EF3085, 0x04881D05,
-        0xD9D4D039, 0xE6DB99E5, 0x1FA27CF8, 0xC4AC5665,
-        0xF4292244, 0x432AFF97, 0xAB9423A7, 0xFC93A039,
-        0x655B59C3, 0x8F0CCC92, 0xFFEFF47D, 0x85845DD1,
-        0x6FA87E4F, 0xFE2CE6E0, 0xA3014314, 0x4E0811A1,
-        0xF7537E82, 0xBD3AF235, 0x2AD7D2BB, 0xEB86D391
+        0xD76AA478, 0xE8C7B756, 0x242070DB, 0xC1BDCEEE, 0xF57C0FAF, 0x4787C62A, 0xA8304613, 0xFD469501,
+        0x698098D8, 0x8B44F7AF, 0xFFFF5BB1, 0x895CD7BE, 0x6B901122, 0xFD987193, 0xA679438E, 0x49B40821,
+        0xF61E2562, 0xC040B340, 0x265E5A51, 0xE9B6C7AA, 0xD62F105D, 0x02441453, 0xD8A1E681, 0xE7D3FBC8,
+        0x21E1CDE6, 0xC33707D6, 0xF4D50D87, 0x455A14ED, 0xA9E3E905, 0xFCEFA3F8, 0x676F02D9, 0x8D2A4C8A,
+        0xFFFA3942, 0x8771F681, 0x6D9D6122, 0xFDE5380C, 0xA4BEEA44, 0x4BDECFA9, 0xF6BB4B60, 0xBEBFBC70,
+        0x289B7EC6, 0xEAA127FA, 0xD4EF3085, 0x04881D05, 0xD9D4D039, 0xE6DB99E5, 0x1FA27CF8, 0xC4AC5665,
+        0xF4292244, 0x432AFF97, 0xAB9423A7, 0xFC93A039, 0x655B59C3, 0x8F0CCC92, 0xFFEFF47D, 0x85845DD1,
+        0x6FA87E4F, 0xFE2CE6E0, 0xA3014314, 0x4E0811A1, 0xF7537E82, 0xBD3AF235, 0x2AD7D2BB, 0xEB86D391
     };
 
     private final int[] state = new int[4];
     private final int[] words = new int[16];
-    private final byte[] block = new byte[64];
-    private int blockLength;
-    private long totalLength;
 
     public Md5() {
-        reset();
+        super(64, false);
+        resetState();
     }
 
-    public void reset() {
+    @Override
+    public int length() {
+        return 16;
+    }
+
+    @Override
+    void resetState() {
         state[0] = 0x67452301;
         state[1] = 0xEFCDAB89;
         state[2] = 0x98BADCFE;
         state[3] = 0x10325476;
-        blockLength = 0;
-        totalLength = 0;
     }
 
-    public void update(byte value) {
-        block[blockLength++] = value;
-        totalLength++;
-        if (blockLength == 64) {
-            transform();
-            blockLength = 0;
-        }
-    }
-
-    public void update(byte[] input, int offset, int length) {
-        for (int i = 0; i < length; ++i) {
-            update(input[offset + i]);
-        }
-    }
-
-    // The digest of everything updated since the last reset; the state is reset afterwards.
-    public byte[] digest() {
-        long bitLength = totalLength * 8;
-        update((byte) 0x80);
-        while (blockLength != 56) {
-            update((byte) 0);
-        }
-        for (int i = 0; i < 8; ++i) {
-            update((byte) (bitLength >>> (8 * i)));
-        }
-        byte[] result = new byte[16];
-        for (int i = 0; i < 4; ++i) {
-            for (int j = 0; j < 4; ++j) {
-                result[i * 4 + j] = (byte) (state[i] >>> (8 * j));
-            }
-        }
-        reset();
-        return result;
-    }
-
-    private void transform() {
+    @Override
+    void transform() {
         for (int i = 0; i < 16; ++i) {
             words[i] = (block[i * 4] & 0xFF) | (block[i * 4 + 1] & 0xFF) << 8 | (block[i * 4 + 2] & 0xFF) << 16
                     | (block[i * 4 + 3] & 0xFF) << 24;
@@ -134,5 +94,22 @@ public final class Md5 {
         state[1] += b;
         state[2] += c;
         state[3] += d;
+    }
+
+    @Override
+    byte[] output() {
+        byte[] result = new byte[16];
+        for (int i = 0; i < 16; ++i) {
+            result[i] = (byte) (state[i / 4] >>> (8 * (i % 4)));
+        }
+        return result;
+    }
+
+    @Override
+    public Md5 copy() {
+        Md5 copy = new Md5();
+        copyBlockTo(copy);
+        System.arraycopy(state, 0, copy.state, 0, state.length);
+        return copy;
     }
 }

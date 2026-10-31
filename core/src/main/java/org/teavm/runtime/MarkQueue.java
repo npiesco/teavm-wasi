@@ -28,6 +28,8 @@ final class MarkQueue {
     private static int head;
     private static int tail;
     private static int limit;
+    // Set when an object could not be queued; GC then rescans the heap for marked objects to trace.
+    static boolean overflow;
 
     static void init() {
         head = 0;
@@ -35,15 +37,18 @@ final class MarkQueue {
         limit = GC.gcStorageSize() / 4;
     }
 
+    // The caller has already marked the object, so one that does not fit is found again by the rescan.
     static void enqueue(RuntimeObject object) {
+        int next = tail + 1;
+        if (next >= limit) {
+            next = 0;
+        }
+        if (next == head) {
+            overflow = true;
+            return;
+        }
         GC.gcStorageAddress().add(4 * tail).putInt(pack(object.toAddress()));
-        if (++tail >= limit) {
-            tail = 0;
-        }
-        if (tail == head) {
-            ExceptionHandling.printStack();
-            GC.outOfMemory();
-        }
+        tail = next;
     }
 
     static RuntimeObject dequeue() {

@@ -18,9 +18,7 @@ package org.teavm.classlib.java.util;
 import java.util.function.DoublePredicate;
 import java.util.function.IntPredicate;
 import java.util.function.LongPredicate;
-import org.teavm.classlib.PlatformDetector;
 import org.teavm.classlib.java.io.TSerializable;
-import org.teavm.classlib.java.lang.TMath;
 import org.teavm.classlib.java.lang.TObject;
 import org.teavm.classlib.java.util.stream.TDoubleStream;
 import org.teavm.classlib.java.util.stream.TIntStream;
@@ -28,39 +26,60 @@ import org.teavm.classlib.java.util.stream.TLongStream;
 import org.teavm.classlib.java.util.stream.doubleimpl.TSimpleDoubleStreamImpl;
 import org.teavm.classlib.java.util.stream.intimpl.TSimpleIntStreamImpl;
 import org.teavm.classlib.java.util.stream.longimpl.TSimpleLongStreamImpl;
-import org.teavm.interop.Import;
-import org.teavm.interop.Unmanaged;
-import org.teavm.interop.wasi.Wasi;
-import org.teavm.jso.JSBody;
 
+/**
+ * The JDK's Random: a 48-bit linear congruential generator whose algorithms are part of its specification, so a
+ * seeded instance produces the JDK's sequence. Bounded values and streams follow JDK 21's RandomSupport.
+ */
 public class TRandom extends TObject implements TSerializable {
+    private static final long MULTIPLIER = 0x5DEECE66DL;
+    private static final long ADDEND = 0xBL;
+    private static final long MASK = (1L << 48) - 1;
+    private static final String BAD_BOUND = "bound must be positive";
+    private static final String BAD_FLOATING_BOUND = "bound must be finite and positive";
+    private static final String BAD_RANGE = "bound must be greater than origin";
+    private static final String BAD_SIZE = "size must be non-negative";
+    private static long seedUniquifier = 8682522807148012L;
 
-    /** A stored gaussian value for nextGaussian() */
-    private double storedGaussian;
-
-    /** Whether storedGuassian value is valid */
-    private boolean haveStoredGaussian;
+    private long seed;
+    private double nextNextGaussian;
+    private boolean haveNextNextGaussian;
 
     public TRandom() {
+        this(nextSeedUniquifier() ^ System.nanoTime());
     }
 
-    public TRandom(@SuppressWarnings("unused") long seed) {
+    public TRandom(long seed) {
+        this.seed = initialScramble(seed);
     }
 
-    public void setSeed(@SuppressWarnings("unused") long seed) {
+    private static long nextSeedUniquifier() {
+        seedUniquifier *= 1181783497276652981L;
+        return seedUniquifier;
+    }
+
+    private static long initialScramble(long seed) {
+        return (seed ^ MULTIPLIER) & MASK;
+    }
+
+    public void setSeed(long seed) {
+        this.seed = initialScramble(seed);
+        haveNextNextGaussian = false;
     }
 
     protected int next(int bits) {
-        if (bits == 32) {
-            return (int) (nextDouble() * ((1L << 32) - 1) + Integer.MIN_VALUE);
-        } else {
-            return (int) (nextDouble() * (1L << TMath.min(32, bits)));
-        }
+        seed = (seed * MULTIPLIER + ADDEND) & MASK;
+        return (int) (seed >>> (48 - bits));
     }
 
     public void nextBytes(byte[] bytes) {
-        for (int i = 0; i < bytes.length; ++i) {
-            bytes[i] = (byte) next(8);
+        int i = 0;
+        int length = bytes.length;
+        while (i < length) {
+            int random = nextInt();
+            for (int n = Math.min(length - i, 4); n-- > 0; random >>= 8) {
+                bytes[i++] = (byte) random;
+            }
         }
     }
 
@@ -68,127 +87,104 @@ public class TRandom extends TObject implements TSerializable {
         return next(32);
     }
 
-    public int nextInt(int n) {
-        if (n <= 0) {
-            throw new IllegalArgumentException();
+    public int nextInt(int bound) {
+        if (bound <= 0) {
+            throw new IllegalArgumentException(BAD_BOUND);
         }
-        return (int) (nextDouble() * n);
+        int r = next(31);
+        int m = bound - 1;
+        if ((bound & m) == 0) {
+            return (int) ((bound * (long) r) >> 31);
+        }
+        int u = r;
+        r = u % bound;
+        while (u - r + m < 0) {
+            u = next(31);
+            r = u % bound;
+        }
+        return r;
     }
 
     public int nextInt(int origin, int bound) {
-        if (origin >= bound) {
-            throw new IllegalArgumentException();
-        }
-        int range = bound - origin;
-        if (range > 0) {
-            return nextInt(range) + origin;
-        } else {
-            while (true) {
-                int value = nextInt();
-                if (value >= origin && value < bound) {
-                    return value;
-                }
-            }
-        }
+        checkRange(origin, bound);
+        return boundedNextInt(origin, bound);
     }
 
     public long nextLong() {
-        return ((long) nextInt() << 32) | nextInt();
+        return ((long) next(32) << 32) + next(32);
     }
 
     public long nextLong(long bound) {
         if (bound <= 0) {
-            throw new IllegalArgumentException();
+            throw new IllegalArgumentException(BAD_BOUND);
         }
-        while (true) {
-            long value = nextLong();
-            long result = value % bound;
-            if (value - result + (bound - 1) < 0) {
-                return result;
-            }
+        long m = bound - 1;
+        long r = nextLong();
+        if ((bound & m) == 0L) {
+            return r & m;
         }
+        long u = r >>> 1;
+        r = u % bound;
+        while (u + m - r < 0L) {
+            u = nextLong() >>> 1;
+            r = u % bound;
+        }
+        return r;
     }
 
     public long nextLong(long origin, long bound) {
-        if (origin >= bound) {
-            throw new IllegalArgumentException();
-        }
-        long range = bound - origin;
-        if (range > 0) {
-            return nextLong(range) + origin;
-        } else {
-            while (true) {
-                long value = nextLong();
-                if (value >= origin && value < bound) {
-                    return value;
-                }
-            }
-        }
+        checkRange(origin, bound);
+        return boundedNextLong(origin, bound);
     }
 
     public boolean nextBoolean() {
-        return nextInt() % 2 == 0;
+        return next(1) != 0;
     }
 
     public float nextFloat() {
-        return (float) nextDouble();
+        return next(24) / (float) (1 << 24);
     }
 
     public float nextFloat(float bound) {
-        return (float) nextDouble(bound);
+        if (!(bound > 0.0f && bound < Float.POSITIVE_INFINITY)) {
+            throw new IllegalArgumentException(BAD_FLOATING_BOUND);
+        }
+        float r = nextFloat() * bound;
+        return r >= bound ? Math.nextDown(bound) : r;
     }
 
     public float nextFloat(float origin, float bound) {
-        return (float) nextDouble(origin, bound);
+        if (!(origin < bound && bound - origin < Float.POSITIVE_INFINITY)) {
+            throw new IllegalArgumentException(BAD_RANGE);
+        }
+        float r = nextFloat() * (bound - origin) + origin;
+        return r >= bound ? Math.nextDown(bound) : r;
     }
 
     public double nextDouble() {
-        if (PlatformDetector.isC()) {
-            return crand();
-        } else {
-            return random();
-        }
+        return (((long) next(26) << 27) + next(27)) * 0x1.0p-53;
     }
 
     public double nextDouble(double bound) {
-        if (bound <= 0) {
-            throw new IllegalArgumentException();
+        if (!(bound > 0.0 && bound < Double.POSITIVE_INFINITY)) {
+            throw new IllegalArgumentException(BAD_FLOATING_BOUND);
         }
-        double value = nextDouble() * bound;
-        if (value == bound) {
-            value = Math.nextDown(value);
-        }
-        return value;
+        double r = nextDouble() * bound;
+        return r >= bound ? Math.nextDown(bound) : r;
     }
 
     public double nextDouble(double origin, double bound) {
-        if (origin >= bound) {
-            throw new IllegalArgumentException();
+        if (!(origin < bound && bound - origin < Double.POSITIVE_INFINITY)) {
+            throw new IllegalArgumentException(BAD_RANGE);
         }
-        return origin + nextDouble(bound - origin);
+        return boundedNextDouble(origin, bound);
     }
 
-    @Import(name = "teavm_rand")
-    @Unmanaged
-    private static native double crand();
-
-    /**
-     * Generate a random number with Gaussian distribution:
-     * centered around 0 with a standard deviation of 1.0.
-     */
     public double nextGaussian() {
-
-        /*
-         * This implementation uses the polar method to generate two gaussian
-         * values at a time. One is returned, and the other is stored to be returned
-         * next time.
-         */
-
-        if (haveStoredGaussian) {
-            haveStoredGaussian = false;
-            return storedGaussian;
+        if (haveNextNextGaussian) {
+            haveNextNextGaussian = false;
+            return nextNextGaussian;
         }
-
         double v1;
         double v2;
         double s;
@@ -197,315 +193,214 @@ public class TRandom extends TObject implements TSerializable {
             v2 = 2 * nextDouble() - 1;
             s = v1 * v1 + v2 * v2;
         } while (s >= 1 || s == 0);
-
-        double m = StrictMath.sqrt(-2 * StrictMath.log(s) / s);
-        storedGaussian = v2 * m;
-        haveStoredGaussian = true;
-
-        return v1 * m;
+        double multiplier = StrictMath.sqrt(-2 * StrictMath.log(s) / s);
+        nextNextGaussian = v2 * multiplier;
+        haveNextNextGaussian = true;
+        return v1 * multiplier;
     }
 
-    private static double random() {
-        if (PlatformDetector.isWebAssembly()) {
-            return Wasi.random();
-        } else {
-            return nativeRandom();
+    private static void checkRange(int origin, int bound) {
+        if (origin >= bound) {
+            throw new IllegalArgumentException(BAD_RANGE);
         }
     }
 
-    @JSBody(script = "return Math.random();")
-    @Import(module = "teavmMath", name = "random")
-    @Unmanaged
-    private static native double nativeRandom();
+    private static void checkRange(long origin, long bound) {
+        if (origin >= bound) {
+            throw new IllegalArgumentException(BAD_RANGE);
+        }
+    }
+
+    private static void checkRange(double origin, double bound) {
+        if (!(origin < bound && bound - origin < Double.POSITIVE_INFINITY)) {
+            throw new IllegalArgumentException(BAD_RANGE);
+        }
+    }
+
+    private static void checkStreamSize(long size) {
+        if (size < 0L) {
+            throw new IllegalArgumentException(BAD_SIZE);
+        }
+    }
+
+    private int boundedNextInt(int origin, int bound) {
+        int r = nextInt();
+        if (origin < bound) {
+            int n = bound - origin;
+            int m = n - 1;
+            if ((n & m) == 0) {
+                r = (r & m) + origin;
+            } else if (n > 0) {
+                int u = r >>> 1;
+                r = u % n;
+                while (u + m - r < 0) {
+                    u = nextInt() >>> 1;
+                    r = u % n;
+                }
+                r += origin;
+            } else {
+                while (r < origin || r >= bound) {
+                    r = nextInt();
+                }
+            }
+        }
+        return r;
+    }
+
+    private long boundedNextLong(long origin, long bound) {
+        long r = nextLong();
+        if (origin < bound) {
+            long n = bound - origin;
+            long m = n - 1;
+            if ((n & m) == 0L) {
+                r = (r & m) + origin;
+            } else if (n > 0L) {
+                long u = r >>> 1;
+                r = u % n;
+                while (u + m - r < 0L) {
+                    u = nextLong() >>> 1;
+                    r = u % n;
+                }
+                r += origin;
+            } else {
+                while (r < origin || r >= bound) {
+                    r = nextLong();
+                }
+            }
+        }
+        return r;
+    }
+
+    private double boundedNextDouble(double origin, double bound) {
+        double r = nextDouble();
+        if (origin < bound) {
+            if (bound - origin < Double.POSITIVE_INFINITY) {
+                r = r * (bound - origin) + origin;
+            } else {
+                double halfOrigin = 0.5 * origin;
+                r = (r * (0.5 * bound - halfOrigin) + halfOrigin) * 2.0;
+            }
+            if (r >= bound) {
+                r = Math.nextDown(bound);
+            }
+        }
+        return r;
+    }
 
     public TIntStream ints(long streamSize) {
-        if (streamSize < 0) {
-            throw new IllegalArgumentException();
-        }
-        return new TSimpleIntStreamImpl() {
-            private long remaining = streamSize;
-
-            @Override
-            public boolean next(IntPredicate consumer) {
-                while (remaining > 0) {
-                    --remaining;
-                    if (!consumer.test(nextInt())) {
-                        return true;
-                    }
-                }
-                return false;
-            }
-        };
+        checkStreamSize(streamSize);
+        return intStream(streamSize, Integer.MAX_VALUE, 0);
     }
 
     public TIntStream ints() {
-        return new TSimpleIntStreamImpl() {
-            @Override
-            public boolean next(IntPredicate consumer) {
-                while (consumer.test(nextInt())) {
-                    // go on
-                }
-                return true;
-            }
-        };
+        return intStream(-1, Integer.MAX_VALUE, 0);
     }
 
     public TIntStream ints(long streamSize, int randomNumberOrigin, int randomNumberBound) {
-        if (streamSize < 0 || randomNumberOrigin >= randomNumberBound) {
-            throw new IllegalArgumentException();
-        }
-
-        int range = randomNumberBound - randomNumberOrigin;
-        if (range > 0) {
-            return new TSimpleIntStreamImpl() {
-                long remaining = streamSize;
-
-                @Override
-                public boolean next(IntPredicate consumer) {
-                    while (remaining > 0) {
-                        --remaining;
-                        if (!consumer.test(nextInt(range) + randomNumberOrigin)) {
-                            return true;
-                        }
-                    }
-                    return false;
-                }
-            };
-        } else {
-            return new TSimpleIntStreamImpl() {
-                long remaining = streamSize;
-
-                @Override
-                public boolean next(IntPredicate consumer) {
-                    while (remaining > 0) {
-                        --remaining;
-                        int n;
-                        do {
-                            n = nextInt();
-                        } while (n < randomNumberOrigin || n >= randomNumberBound);
-                        if (!consumer.test(n)) {
-                            return true;
-                        }
-                    }
-                    return false;
-                }
-            };
-        }
+        checkStreamSize(streamSize);
+        checkRange(randomNumberOrigin, randomNumberBound);
+        return intStream(streamSize, randomNumberOrigin, randomNumberBound);
     }
 
     public TIntStream ints(int randomNumberOrigin, int randomNumberBound) {
-        if (randomNumberOrigin >= randomNumberBound) {
-            throw new IllegalArgumentException();
-        }
+        checkRange(randomNumberOrigin, randomNumberBound);
+        return intStream(-1, randomNumberOrigin, randomNumberBound);
+    }
 
-        int range = randomNumberBound - randomNumberOrigin;
-        if (range > 0) {
-            return new TSimpleIntStreamImpl() {
-                @Override
-                public boolean next(IntPredicate consumer) {
-                    while (true) {
-                        if (!consumer.test(nextInt(range) + randomNumberOrigin)) {
-                            return true;
-                        }
+    // size < 0 means unlimited; origin >= bound means unbounded values.
+    private TIntStream intStream(long size, int origin, int bound) {
+        return new TSimpleIntStreamImpl() {
+            private long remaining = size;
+
+            @Override
+            public boolean next(IntPredicate consumer) {
+                while (remaining != 0) {
+                    if (remaining > 0) {
+                        --remaining;
+                    }
+                    if (!consumer.test(boundedNextInt(origin, bound))) {
+                        return true;
                     }
                 }
-            };
-        } else {
-            return new TSimpleIntStreamImpl() {
-                @Override
-                public boolean next(IntPredicate consumer) {
-                    while (true) {
-                        int n;
-                        do {
-                            n = nextInt();
-                        } while (n < randomNumberOrigin || n >= randomNumberBound);
-                        if (!consumer.test(n)) {
-                            return true;
-                        }
-                    }
-                }
-            };
-        }
+                return false;
+            }
+        };
     }
 
     public TLongStream longs(long streamSize) {
-        if (streamSize < 0) {
-            throw new IllegalArgumentException();
-        }
-        return new TSimpleLongStreamImpl() {
-            private long remaining = streamSize;
-
-            @Override
-            public boolean next(LongPredicate consumer) {
-                while (remaining > 0) {
-                    --remaining;
-                    if (!consumer.test(nextLong())) {
-                        return true;
-                    }
-                }
-                return false;
-            }
-        };
+        checkStreamSize(streamSize);
+        return longStream(streamSize, Long.MAX_VALUE, 0L);
     }
 
     public TLongStream longs() {
-        return new TSimpleLongStreamImpl() {
-            @Override
-            public boolean next(LongPredicate consumer) {
-                while (consumer.test(nextLong())) {
-                    // go on
-                }
-                return true;
-            }
-        };
+        return longStream(-1, Long.MAX_VALUE, 0L);
     }
 
     public TLongStream longs(long streamSize, long randomNumberOrigin, long randomNumberBound) {
-        if (streamSize < 0 || randomNumberOrigin >= randomNumberBound) {
-            throw new IllegalArgumentException();
-        }
-
-        long range = randomNumberBound - randomNumberOrigin;
-        if (range > 0) {
-            return new TSimpleLongStreamImpl() {
-                long remaining = streamSize;
-
-                @Override
-                public boolean next(LongPredicate consumer) {
-                    while (remaining > 0) {
-                        --remaining;
-                        if (!consumer.test(nextLong(range) + randomNumberOrigin)) {
-                            return true;
-                        }
-                    }
-                    return false;
-                }
-            };
-        } else {
-            return new TSimpleLongStreamImpl() {
-                long remaining = streamSize;
-
-                @Override
-                public boolean next(LongPredicate consumer) {
-                    while (remaining > 0) {
-                        --remaining;
-                        long n;
-                        do {
-                            n = nextLong();
-                        } while (n < randomNumberOrigin || n >= randomNumberBound);
-                        if (!consumer.test(n)) {
-                            return true;
-                        }
-                    }
-                    return false;
-                }
-            };
-        }
+        checkStreamSize(streamSize);
+        checkRange(randomNumberOrigin, randomNumberBound);
+        return longStream(streamSize, randomNumberOrigin, randomNumberBound);
     }
 
     public TLongStream longs(long randomNumberOrigin, long randomNumberBound) {
-        if (randomNumberOrigin >= randomNumberBound) {
-            throw new IllegalArgumentException();
-        }
+        checkRange(randomNumberOrigin, randomNumberBound);
+        return longStream(-1, randomNumberOrigin, randomNumberBound);
+    }
 
-        long range = randomNumberBound - randomNumberOrigin;
-        if (range > 0) {
-            return new TSimpleLongStreamImpl() {
-                @Override
-                public boolean next(LongPredicate consumer) {
-                    while (true) {
-                        if (!consumer.test(nextLong(range) + randomNumberOrigin)) {
-                            return true;
-                        }
+    private TLongStream longStream(long size, long origin, long bound) {
+        return new TSimpleLongStreamImpl() {
+            private long remaining = size;
+
+            @Override
+            public boolean next(LongPredicate consumer) {
+                while (remaining != 0) {
+                    if (remaining > 0) {
+                        --remaining;
+                    }
+                    if (!consumer.test(boundedNextLong(origin, bound))) {
+                        return true;
                     }
                 }
-            };
-        } else {
-            return new TSimpleLongStreamImpl() {
-                @Override
-                public boolean next(LongPredicate consumer) {
-                    while (true) {
-                        long n;
-                        do {
-                            n = nextLong();
-                        } while (n < randomNumberOrigin || n >= randomNumberBound);
-                        if (!consumer.test(n)) {
-                            return true;
-                        }
-                    }
-                }
-            };
-        }
+                return false;
+            }
+        };
     }
 
     public TDoubleStream doubles(long streamSize) {
-        if (streamSize < 0) {
-            throw new IllegalArgumentException();
-        }
-        return new TSimpleDoubleStreamImpl() {
-            private long remaining = streamSize;
-
-            @Override
-            public boolean next(DoublePredicate consumer) {
-                while (remaining > 0) {
-                    --remaining;
-                    if (!consumer.test(nextDouble())) {
-                        return true;
-                    }
-                }
-                return false;
-            }
-        };
+        checkStreamSize(streamSize);
+        return doubleStream(streamSize, Double.MAX_VALUE, 0.0);
     }
 
     public TDoubleStream doubles() {
-        return new TSimpleDoubleStreamImpl() {
-            @Override
-            public boolean next(DoublePredicate consumer) {
-                while (consumer.test(nextDouble())) {
-                    // go on
-                }
-                return true;
-            }
-        };
+        return doubleStream(-1, Double.MAX_VALUE, 0.0);
     }
 
     public TDoubleStream doubles(long streamSize, double randomNumberOrigin, double randomNumberBound) {
-        if (streamSize < 0 || randomNumberOrigin >= randomNumberBound) {
-            throw new IllegalArgumentException();
-        }
+        checkStreamSize(streamSize);
+        checkRange(randomNumberOrigin, randomNumberBound);
+        return doubleStream(streamSize, randomNumberOrigin, randomNumberBound);
+    }
 
-        double range = randomNumberBound - randomNumberOrigin;
+    public TDoubleStream doubles(double randomNumberOrigin, double randomNumberBound) {
+        checkRange(randomNumberOrigin, randomNumberBound);
+        return doubleStream(-1, randomNumberOrigin, randomNumberBound);
+    }
+
+    private TDoubleStream doubleStream(long size, double origin, double bound) {
         return new TSimpleDoubleStreamImpl() {
-            long remaining = streamSize;
+            private long remaining = size;
 
             @Override
             public boolean next(DoublePredicate consumer) {
-                while (remaining > 0) {
-                    --remaining;
-                    if (!consumer.test(nextDouble() * range + randomNumberOrigin)) {
+                while (remaining != 0) {
+                    if (remaining > 0) {
+                        --remaining;
+                    }
+                    if (!consumer.test(boundedNextDouble(origin, bound))) {
                         return true;
                     }
                 }
                 return false;
-            }
-        };
-    }
-
-    public TDoubleStream doubles(double randomNumberOrigin, double randomNumberBound) {
-        if (randomNumberOrigin >= randomNumberBound) {
-            throw new IllegalArgumentException();
-        }
-
-        double range = randomNumberBound - randomNumberOrigin;
-        return new TSimpleDoubleStreamImpl() {
-            @Override
-            public boolean next(DoublePredicate consumer) {
-                while (true) {
-                    if (!consumer.test(nextDouble() * range + randomNumberOrigin)) {
-                        return true;
-                    }
-                }
             }
         };
     }

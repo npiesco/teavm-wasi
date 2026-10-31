@@ -386,21 +386,47 @@ public final class GC {
     }
 
     private static void doProcessMarkQueue() {
-        while (!MarkQueue.isEmpty()) {
-            RuntimeObject object = MarkQueue.dequeue();
-            MemoryTrace.mark(object.toAddress());
-
-            long offset = object.toAddress().toLong() - heapAddress().toLong();
-            Region region = Structure.add(Region.class, regionsAddress(), (int) (offset /  regionSize()));
-            short relativeOffset = (short) (offset % regionSize() + 1);
-            if (region.start == 0 || region.start > relativeOffset) {
-                region.start = relativeOffset;
-            }
-            Address cardTableItem = cardTable().add(offset / regionSize());
-            cardTableItem.putByte((byte) (cardTableItem.getByte() | CARD_YOUNG_GEN));
-
-            markObjectData(object);
+        drainMarkQueue();
+        while (MarkQueue.overflow) {
+            MarkQueue.overflow = false;
+            rescanMarkedObjects();
         }
+    }
+
+    // Traces every object marked in this collection; tracing is idempotent, so objects already traced only
+    // re-check their children, while those dropped by a full mark queue get traced for the first time.
+    private static void rescanMarkedObjects() {
+        Address limit = heapAddress().add(availableBytes());
+        FreeChunk chunk = heapAddress().toStructure();
+        while (chunk.toAddress().isLessThan(limit)) {
+            int size = objectSize(chunk);
+            if (chunk.classReference != 0 && (chunk.classReference & RuntimeObject.GC_MARKED) != 0) {
+                traceMarked(chunk.toAddress().toStructure());
+                drainMarkQueue();
+            }
+            chunk = chunk.toAddress().add(size).toStructure();
+        }
+    }
+
+    private static void drainMarkQueue() {
+        while (!MarkQueue.isEmpty()) {
+            traceMarked(MarkQueue.dequeue());
+        }
+    }
+
+    private static void traceMarked(RuntimeObject object) {
+        MemoryTrace.mark(object.toAddress());
+
+        long offset = object.toAddress().toLong() - heapAddress().toLong();
+        Region region = Structure.add(Region.class, regionsAddress(), (int) (offset /  regionSize()));
+        short relativeOffset = (short) (offset % regionSize() + 1);
+        if (region.start == 0 || region.start > relativeOffset) {
+            region.start = relativeOffset;
+        }
+        Address cardTableItem = cardTable().add(offset / regionSize());
+        cardTableItem.putByte((byte) (cardTableItem.getByte() | CARD_YOUNG_GEN));
+
+        markObjectData(object);
     }
 
     private static boolean markObjectData(RuntimeObject object) {
