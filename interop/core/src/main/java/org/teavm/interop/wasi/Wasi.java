@@ -23,6 +23,8 @@ import org.teavm.interop.Unmanaged;
 
 public final class Wasi {
     public static final int CLOCKID_REALTIME = 0;
+    public static final int CLOCKID_MONOTONIC = 1;
+    public static final byte EVENTTYPE_CLOCK = 0;
     public static final short ERRNO_SUCCESS = 0;
     public static final short ERRNO_BADF = 8;
     public static final short ERRNO_EXIST = 20;
@@ -61,6 +63,9 @@ public final class Wasi {
 
     @Import(name = "args_get", module = "wasi_snapshot_preview1")
     public static native short argsGet(Address argv, Address argvBuf);
+
+    @Import(name = "poll_oneoff", module = "wasi_snapshot_preview1")
+    public static native short pollOneoff(Address in, Address out, int nsubscriptions, Address nevents);
 
     @Import(name = "clock_time_get", module = "wasi_snapshot_preview1")
     public static native short clockTimeGet(int clockid, long precision, Address timestamp);

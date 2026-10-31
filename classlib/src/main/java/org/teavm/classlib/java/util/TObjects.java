@@ -43,7 +43,10 @@ public final class TObjects extends TObject {
     }
 
     public static <T> T requireNonNull(T obj) {
-        return requireNonNull(obj, "");
+        if (obj == null) {
+            throw new NullPointerException();
+        }
+        return obj;
     }
 
     public static <T> T requireNonNull(T obj, String message) {
@@ -55,17 +58,17 @@ public final class TObjects extends TObject {
 
     public static <T> T requireNonNull(T obj, Supplier<String> messageSupplier) {
         if (obj == null) {
-            throw new NullPointerException(messageSupplier.get());
+            throw new NullPointerException(messageSupplier == null ? null : messageSupplier.get());
         }
         return obj;
     }
 
     public static <T> T requireNonNullElse(T obj, T defaultObj) {
-        return obj != null ? obj : requireNonNull(defaultObj);
+        return obj != null ? obj : requireNonNull(defaultObj, "defaultObj");
     }
 
     public static <T> T requireNonNullElseGet(T obj, Supplier<? extends T> supplier) {
-        return obj != null ? obj : requireNonNull(supplier.get());
+        return obj != null ? obj : requireNonNull(requireNonNull(supplier, "supplier").get(), "supplier.get()");
     }
 
     public static boolean isNull(Object obj) {

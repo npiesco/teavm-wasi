@@ -23,6 +23,8 @@ import org.teavm.interop.wasi.Wasi.ErrnoException;
 
 public final class WasiMain {
     private static final byte[] TWELVE_BYTE_BUFFER = new byte[12];
+    // One clock subscription (48 bytes), its event (32 bytes) and the event count, 8-byte aligned.
+    private static final byte[] POLL_BUFFER = new byte[48 + 32 + 8 + 8];
 
     private WasiMain() {
     }
@@ -56,14 +58,43 @@ public final class WasiMain {
                     }
 
                     Fiber.startMain(args);
+                    runEventLoop();
                 } else {
                     throw new ErrnoException("args_get", errno);
                 }
             } else {
                 Fiber.startMain(new String[0]);
+                runEventLoop();
             }
         } else {
             throw new ErrnoException("args_sizes_get", errno);
         }
+    }
+
+    // A WASI host has no event loop of its own, so the program keeps running the event queue (resumed sleeps and
+    // waits, started threads) until every user thread has finished, sleeping until the next event is due. An empty
+    // queue means no thread can ever be resumed again.
+    private static void runEventLoop() {
+        while (!EventQueue.isStopped()) {
+            long delay = EventQueue.processSingle();
+            if (delay < 0) {
+                return;
+            }
+            if (delay > 0) {
+                sleep(delay);
+            }
+        }
+    }
+
+    private static void sleep(long millis) {
+        Address subscription = Address.align(Address.ofData(POLL_BUFFER), 8);
+        for (int i = 0; i < 48; i += 8) {
+            subscription.add(i).putLong(0);
+        }
+        subscription.add(8).putByte(Wasi.EVENTTYPE_CLOCK);
+        subscription.add(16).putInt(Wasi.CLOCKID_MONOTONIC);
+        subscription.add(24).putLong(millis * 1000000L);
+        Address event = subscription.add(48);
+        Wasi.pollOneoff(subscription, event, 1, event.add(32));
     }
 }

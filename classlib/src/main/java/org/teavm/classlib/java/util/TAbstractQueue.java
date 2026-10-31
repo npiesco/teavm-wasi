@@ -28,7 +28,7 @@ public abstract class TAbstractQueue<E> extends TAbstractCollection<E> implement
         if (offer(e)) {
             return true;
         }
-        throw new TIllegalStateException();
+        throw new TIllegalStateException("Queue full");
     }
 
     @Override

@@ -905,6 +905,10 @@ public class TArrays extends TObject {
     }
 
     public static <T> void sort(T[] a, int fromIndex, int toIndex, TComparator<? super T> c) {
+        if (c == null) {
+            sort(a, fromIndex, toIndex);
+            return;
+        }
         @SuppressWarnings("unchecked")
         T[] subarray = (T[]) new Object[toIndex - fromIndex];
         for (int i = fromIndex; i < toIndex; ++i) {
@@ -918,6 +922,10 @@ public class TArrays extends TObject {
 
     @SuppressWarnings("unchecked")
     public static <T> void sort(T[] a, TComparator<? super T> c) {
+        if (c == null) {
+            sort(a);
+            return;
+        }
         if (a.length == 0) {
             return;
         }
