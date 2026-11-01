@@ -368,6 +368,11 @@ public class WasmTarget implements TeaVMTarget, TeaVMWasmHost {
                 Throwable.class)).use();
 
         dependencyAnalyzer.linkField(new FieldReference("java.lang.Object", "monitor"));
+        // Async methods run on fibers here, and the code generator lowers their monitor instructions to these
+        // suspending variants, which the dependency analysis links only for targets that declare async support.
+        for (String name : new String[] { "monitorEnter", "monitorExit" }) {
+            dependencyAnalyzer.linkMethod(new MethodReference(Object.class, name, Object.class, void.class)).use();
+        }
 
         dependencyAnalyzer.linkMethod(new MethodReference(String.class, "allocate", int.class, String.class))
                 .use();

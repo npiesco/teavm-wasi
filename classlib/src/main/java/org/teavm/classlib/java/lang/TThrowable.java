@@ -17,6 +17,8 @@ package org.teavm.classlib.java.lang;
 
 import java.io.PrintStream;
 import java.io.PrintWriter;
+import java.util.ArrayList;
+import java.util.List;
 import org.teavm.classlib.PlatformDetector;
 import org.teavm.classlib.java.io.TSerializable;
 import org.teavm.classlib.java.util.TArrays;
@@ -32,7 +34,9 @@ public class TThrowable extends RuntimeException implements TSerializable {
     private TThrowable cause;
     private boolean suppressionEnabled;
     private boolean writableStackTrace;
-    private TThrowable[] suppressed = new TThrowable[0];
+    // Field initializers would run only in the fakeInit constructors, which the renamed <init> methods replace, so
+    // this stays null until the first suppressed exception is added.
+    private TThrowable[] suppressed;
     private TStackTraceElement[] stackTrace;
 
     @SuppressWarnings("unused")
@@ -155,40 +159,88 @@ public class TThrowable extends RuntimeException implements TSerializable {
     }
 
     public void printStackTrace(PrintStream stream) {
-        stream.print(getClass().getName());
-        String message = getLocalizedMessage();
-        if (message != null) {
-            stream.print(": " + message);
-        }
-        stream.println();
-        if (stackTrace != null) {
-            for (TStackTraceElement element : stackTrace) {
-                stream.print("\tat ");
-                stream.println(element);
-            }
-        }
-        if (cause != null && cause != this) {
-            stream.print("Caused by: ");
-            cause.printStackTrace(stream);
-        }
+        printStackTrace(new StackTraceSink(stream, null));
     }
 
     public void printStackTrace(PrintWriter stream) {
-        stream.print(getClass().getName());
-        String message = getLocalizedMessage();
-        if (message != null) {
-            stream.print(": " + message);
+        printStackTrace(new StackTraceSink(null, stream));
+    }
+
+    // The JDK's layout: the trace, then suppressed exceptions and the cause, each without the frames it shares with
+    // the trace that encloses it, guarding against cycles.
+    private void printStackTrace(StackTraceSink s) {
+        List<TThrowable> dejaVu = new ArrayList<>();
+        dejaVu.add(this);
+        s.println(String.valueOf(this));
+        TStackTraceElement[] trace = getOurStackTrace();
+        for (TStackTraceElement element : trace) {
+            s.println("\tat " + element);
         }
-        stream.println();
-        if (stackTrace != null) {
-            for (TStackTraceElement element : stackTrace) {
-                stream.print("\tat ");
-                stream.println(element);
+        for (TThrowable se : getOurSuppressed()) {
+            se.printEnclosedStackTrace(s, trace, "Suppressed: ", "\t", dejaVu);
+        }
+        TThrowable ourCause = cause != this ? cause : null;
+        if (ourCause != null) {
+            ourCause.printEnclosedStackTrace(s, trace, "Caused by: ", "", dejaVu);
+        }
+    }
+
+    private void printEnclosedStackTrace(StackTraceSink s, TStackTraceElement[] enclosingTrace, String caption,
+            String prefix, List<TThrowable> dejaVu) {
+        for (TThrowable seen : dejaVu) {
+            if (seen == this) {
+                s.println(prefix + caption + "[CIRCULAR REFERENCE: " + this + "]");
+                return;
             }
         }
-        if (cause != null && cause != this) {
-            stream.print("Caused by: ");
-            cause.printStackTrace(stream);
+        dejaVu.add(this);
+        TStackTraceElement[] trace = getOurStackTrace();
+        int m = trace.length - 1;
+        int n = enclosingTrace.length - 1;
+        while (m >= 0 && n >= 0 && trace[m].equals(enclosingTrace[n])) {
+            m--;
+            n--;
+        }
+        int framesInCommon = trace.length - 1 - m;
+        s.println(prefix + caption + this);
+        for (int i = 0; i <= m; i++) {
+            s.println(prefix + "\tat " + trace[i]);
+        }
+        if (framesInCommon != 0) {
+            s.println(prefix + "\t... " + framesInCommon + " more");
+        }
+        for (TThrowable se : getOurSuppressed()) {
+            se.printEnclosedStackTrace(s, trace, "Suppressed: ", prefix + "\t", dejaVu);
+        }
+        TThrowable ourCause = cause != this ? cause : null;
+        if (ourCause != null) {
+            ourCause.printEnclosedStackTrace(s, trace, "Caused by: ", prefix, dejaVu);
+        }
+    }
+
+    private TThrowable[] getOurSuppressed() {
+        return suppressed != null ? suppressed : new TThrowable[0];
+    }
+
+    private TStackTraceElement[] getOurStackTrace() {
+        return stackTrace != null ? stackTrace : new TStackTraceElement[0];
+    }
+
+    private static final class StackTraceSink {
+        private final PrintStream stream;
+        private final PrintWriter writer;
+
+        StackTraceSink(PrintStream stream, PrintWriter writer) {
+            this.stream = stream;
+            this.writer = writer;
+        }
+
+        void println(String line) {
+            if (stream != null) {
+                stream.println(line);
+            } else {
+                writer.println(line);
+            }
         }
     }
 
@@ -203,14 +255,22 @@ public class TThrowable extends RuntimeException implements TSerializable {
 
     @Rename("getSuppressed")
     public final TThrowable[] getSuppressed0() {
-        return TArrays.copyOf(suppressed, suppressed.length);
+        TThrowable[] current = getOurSuppressed();
+        return TArrays.copyOf(current, current.length);
     }
 
     public final void addSuppressed(TThrowable exception) {
+        if (exception == this) {
+            throw new IllegalArgumentException("Self-suppression not permitted", exception);
+        }
+        if (exception == null) {
+            throw new NullPointerException("Cannot suppress a null exception.");
+        }
         if (!suppressionEnabled) {
             return;
         }
-        suppressed = TArrays.copyOf(suppressed, suppressed.length + 1);
+        TThrowable[] current = getOurSuppressed();
+        suppressed = TArrays.copyOf(current, current.length + 1);
         suppressed[suppressed.length - 1] = exception;
     }
 }

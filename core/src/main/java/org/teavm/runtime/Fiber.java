@@ -253,8 +253,22 @@ public class Fiber {
         new Fiber(runner, daemon).start();
     }
 
+    // Set when an exception escaped main; the program then ends with status 1 once its other threads finish.
+    public static boolean mainThreadFailed;
+
     static void startMain(String[] args) {
-        start(() -> runMain(args), false);
+        start(() -> {
+            try {
+                runMain(args);
+            } catch (Throwable e) {
+                mainThreadFailed = true;
+                Thread thread = Thread.currentThread();
+                Thread.UncaughtExceptionHandler handler = thread.getUncaughtExceptionHandler();
+                if (handler != null) {
+                    handler.uncaughtException(thread, e);
+                }
+            }
+        }, false);
     }
 
     static native void runMain(String[] args);

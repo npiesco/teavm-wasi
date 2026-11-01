@@ -1,5 +1,5 @@
 /*
- *  Copyright 2020 by Joerg Hohwiller
+ *  Copyright 2026 spooler contributors.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -15,15 +15,13 @@
  */
 package org.teavm.classlib.java.lang;
 
-import org.teavm.classlib.java.lang.TThread.UncaughtExceptionHandler;
+public class TIllegalThreadStateException extends IllegalArgumentException {
+    private static final long serialVersionUID = -7626246362397460174L;
 
-public class TDefaultUncaughtExceptionHandler implements UncaughtExceptionHandler {
-
-    @Override
-    public void uncaughtException(TThread t, Throwable e) {
-
-        // print to browser console by default
-        e.printStackTrace();
+    public TIllegalThreadStateException() {
     }
 
+    public TIllegalThreadStateException(String s) {
+        super(s);
+    }
 }

@@ -78,11 +78,14 @@ public final class WasiMain {
         while (!EventQueue.isStopped()) {
             long delay = EventQueue.processSingle();
             if (delay < 0) {
-                return;
+                break;
             }
             if (delay > 0) {
                 sleep(delay);
             }
+        }
+        if (Fiber.mainThreadFailed) {
+            Wasi.procExit(1);
         }
     }
 
