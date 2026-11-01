@@ -40,6 +40,33 @@ public abstract class TMessageDigest extends TMessageDigestSpi {
         return new Delegate(algorithm, engine);
     }
 
+    public static TMessageDigest getInstance(String algorithm, String provider) throws TNoSuchAlgorithmException,
+            TNoSuchProviderException {
+        Objects.requireNonNull(algorithm, "null algorithm name");
+        return fromProvider(algorithm, TSecurity.requireProvider(provider));
+    }
+
+    public static TMessageDigest getInstance(String algorithm, TProvider provider) throws TNoSuchAlgorithmException {
+        Objects.requireNonNull(algorithm, "null algorithm name");
+        TSecurity.requireProvider(provider);
+        return fromProvider(algorithm, provider);
+    }
+
+    private static TMessageDigest fromProvider(String algorithm, TProvider provider)
+            throws TNoSuchAlgorithmException {
+        DigestEngine engine = provider.getService("MessageDigest", algorithm) != null
+                ? Digests.create(algorithm) : null;
+        if (engine == null) {
+            throw new TNoSuchAlgorithmException("no such algorithm: " + algorithm + " for provider "
+                    + provider.getName());
+        }
+        return new Delegate(algorithm, engine);
+    }
+
+    public final TProvider getProvider() {
+        return TSecurity.getProviders()[0];
+    }
+
     public final String getAlgorithm() {
         return algorithm;
     }

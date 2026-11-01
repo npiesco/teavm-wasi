@@ -212,13 +212,17 @@ public final class TSystem extends TObject {
     private static void initPropertiesIfNeeded() {
         if (properties == null) {
             Properties defaults = new Properties();
-            defaults.put("java.version", "1.8");
+            // The Java platform this class library implements, as a JDK 21 reports it.
+            defaults.put("java.version", "21");
+            defaults.put("java.specification.version", "21");
+            defaults.put("java.vm.specification.version", "21");
+            defaults.put("java.class.version", "65.0");
             defaults.put("os.name", "TeaVM");
             defaults.put("file.separator", "/");
             defaults.put("path.separator", ":");
             defaults.put("line.separator", lineSeparator());
             defaults.put("java.io.tmpdir", getTempDir());
-            defaults.put("java.vm.version", "1.8");
+            defaults.put("java.vm.version", "21");
             defaults.put("user.home", getHomeDir());
             properties = new Properties(defaults);
         }

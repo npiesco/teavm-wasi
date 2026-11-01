@@ -74,6 +74,10 @@ public class TSecureRandom extends TRandom {
         return new TSecureRandom("NativePRNGBlocking", false);
     }
 
+    public final TProvider getProvider() {
+        return TSecurity.getProviders()[0];
+    }
+
     public String getAlgorithm() {
         return algorithm;
     }

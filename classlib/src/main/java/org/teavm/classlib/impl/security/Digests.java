@@ -22,6 +22,36 @@ public final class Digests {
     private Digests() {
     }
 
+    private static final String[] STANDARD_NAMES = { "MD2", "MD5", "SHA-1", "SHA-224", "SHA-256", "SHA-384",
+        "SHA-512", "SHA-512/224", "SHA-512/256", "SHA3-224", "SHA3-256", "SHA3-384", "SHA3-512" };
+    private static final String[] ALIAS_CANDIDATES = { "SHA", "SHA1", "SHA224", "SHA256", "SHA384", "SHA512",
+        "SHA512/224", "SHA512/256" };
+    private static final String[] OIDS = { "1.2.840.113549.2.2", "1.2.840.113549.2.5", "1.3.14.3.2.26",
+        "2.16.840.1.101.3.4.2.4", "2.16.840.1.101.3.4.2.1", "2.16.840.1.101.3.4.2.2", "2.16.840.1.101.3.4.2.3",
+        "2.16.840.1.101.3.4.2.5", "2.16.840.1.101.3.4.2.6", "2.16.840.1.101.3.4.2.7", "2.16.840.1.101.3.4.2.8",
+        "2.16.840.1.101.3.4.2.9", "2.16.840.1.101.3.4.2.10" };
+
+    public static String[] standardNames() {
+        return STANDARD_NAMES.clone();
+    }
+
+    // The names that resolve to a standard name: the SUN aliases and the object identifiers, with their OID. prefix.
+    public static String[] aliases(String standardName) {
+        java.util.List<String> result = new java.util.ArrayList<>();
+        for (String candidate : ALIAS_CANDIDATES) {
+            if (canonical(candidate).equals(standardName)) {
+                result.add(candidate);
+            }
+        }
+        for (String oid : OIDS) {
+            if (canonical(oid).equals(standardName)) {
+                result.add(oid);
+                result.add("OID." + oid);
+            }
+        }
+        return result.toArray(new String[0]);
+    }
+
     public static String standardName(String name) {
         return canonical(name);
     }
