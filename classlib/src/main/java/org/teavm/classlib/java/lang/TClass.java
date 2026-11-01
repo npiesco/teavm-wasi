@@ -817,7 +817,7 @@ public class TClass<T> extends TObject implements TSerializable, TType, TAnnotat
     @SuppressWarnings("unchecked")
     public T cast(TObject obj) {
         if (obj != null && !isAssignableFrom((TClass<?>) (Object) obj.getClass())) {
-            throw new TClassCastException(obj.getClass().getName() + " is not subtype of " + getName());
+            throw new TClassCastException("Cannot cast " + obj.getClass().getName() + " to " + getName());
         }
         return (T) obj;
     }

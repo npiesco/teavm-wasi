@@ -30,6 +30,7 @@ import org.teavm.model.ValueType;
 import org.teavm.model.lowlevel.CallSiteDescriptor;
 import org.teavm.model.lowlevel.CallSiteLocation;
 import org.teavm.model.lowlevel.ExceptionHandlerDescriptor;
+import org.teavm.model.util.HostJdk;
 
 public class CallSiteBinaryGenerator {
     private static final int CALL_SITE_FIRST_HANDLER = 0;
@@ -184,23 +185,8 @@ public class CallSiteBinaryGenerator {
     // cannot contain '/', so the runtime splits the two again. The module is the one that defines the class on the
     // JDK running the compiler.
     private String qualifiedClassName(String className) {
-        String module = moduleCache.computeIfAbsent(className, CallSiteBinaryGenerator::platformModule);
+        String module = moduleCache.computeIfAbsent(className, HostJdk::moduleName);
         return module.isEmpty() ? className : module + "/" + className;
-    }
-
-    private static String platformModule(String className) {
-        try {
-            ClassLoader platform = (ClassLoader) ClassLoader.class.getMethod("getPlatformClassLoader").invoke(null);
-            Class<?> cls = Class.forName(className, false, platform);
-            if (cls.getClassLoader() != null && cls.getClassLoader() != platform) {
-                return "";
-            }
-            Object module = Class.class.getMethod("getModule").invoke(cls);
-            Object name = module.getClass().getMethod("getName").invoke(module);
-            return name != null ? (String) name : "";
-        } catch (ReflectiveOperationException | LinkageError e) {
-            return "";
-        }
     }
 
     private int getStringIndirectPointer(String str) {

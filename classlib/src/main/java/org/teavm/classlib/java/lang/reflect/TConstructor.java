@@ -28,7 +28,7 @@ import org.teavm.classlib.java.lang.TThrowable;
 import org.teavm.platform.PlatformObject;
 import org.teavm.platform.PlatformSequence;
 
-public class TConstructor<T> extends TAccessibleObject implements TMember {
+public class TConstructor<T> extends TExecutable {
     private TClass<T> declaringClass;
     private String name;
     private int modifiers;

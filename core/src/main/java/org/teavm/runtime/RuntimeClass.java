@@ -66,6 +66,12 @@ public class RuntimeClass extends RuntimeObject {
     public RuntimeObjectPtr simpleName;
     public RuntimeObject simpleNameCache;
     public RuntimeObject canonicalName;
+    // As ClassCastException messages describe it, e.g. "module java.base of loader 'bootstrap'"; null for the
+    // program's classes, which are in the unnamed module of the application loader.
+    public String moduleDescription;
+    // Keeps the record a multiple of 8 bytes: records are 8-byte aligned, and a class's virtual table follows its
+    // record at the offset the field layout gives.
+    int padding;
 
     @Unmanaged
     public static int computeCanary(int size, int tag) {

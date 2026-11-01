@@ -50,6 +50,7 @@ import org.teavm.model.classes.TagRegistry;
 import org.teavm.model.classes.VirtualTable;
 import org.teavm.model.classes.VirtualTableEntry;
 import org.teavm.model.classes.VirtualTableProvider;
+import org.teavm.model.util.HostJdk;
 import org.teavm.runtime.RuntimeClass;
 import org.teavm.runtime.RuntimeObject;
 
@@ -89,7 +90,9 @@ public class WasmClassGenerator {
             DataPrimitives.ADDRESS, /* layout */
             DataPrimitives.ADDRESS,  /* simple name */
             DataPrimitives.ADDRESS,  /* simple name cache */
-            DataPrimitives.ADDRESS   /* canonical name cache */);
+            DataPrimitives.ADDRESS,  /* canonical name cache */
+            DataPrimitives.ADDRESS,  /* module description */
+            DataPrimitives.INT       /* padding to the record's 8-byte alignment */);
     private IntegerArray staticGcRoots = new IntegerArray(1);
     private int staticGcRootsAddress;
     private int classesAddress;
@@ -114,6 +117,7 @@ public class WasmClassGenerator {
     private static final int CLASS_ENUM_VALUES = 16;
     private static final int CLASS_LAYOUT = 17;
     private static final int CLASS_SIMPLE_NAME = 18;
+    private static final int CLASS_MODULE_DESCRIPTION = 21;
 
     public WasmClassGenerator(ClassReaderSource processedClassSource, ClassReaderSource classSource,
             VirtualTableProvider vtableProvider, TagRegistry tagRegistry, BinaryWriter binaryWriter,
@@ -214,6 +218,25 @@ public class WasmClassGenerator {
             binaryData.start = binaryWriter.append(vtableSize > 0 ? wrapper : binaryData.data);
 
             itemBinaryData.data.setAddress(CLASS_ARRAY_TYPE, binaryData.start);
+        }
+    }
+
+    // Written once every class record has its address: the descriptions are pooled Strings, whose records (String,
+    // char[]) may be among those still being laid out while classes are added.
+    private void writeModuleDescriptions() {
+        for (Map.Entry<ValueType, ClassBinaryData> entry : new ArrayList<>(binaryDataMap.entrySet())) {
+            ValueType type = entry.getKey();
+            ClassBinaryData classData = entry.getValue();
+            if (classData.data == null || !(type instanceof ValueType.Object || type instanceof ValueType.Array)) {
+                continue;
+            }
+            String className = type instanceof ValueType.Object
+                    ? ((ValueType.Object) type).getClassName()
+                    : type.toString().replace('/', '.');
+            String description = HostJdk.moduleDescription(className);
+            if (description != null) {
+                classData.data.setAddress(CLASS_MODULE_DESCRIPTION, stringPool.getStringPointer(description));
+            }
         }
     }
 
@@ -717,6 +740,7 @@ public class WasmClassGenerator {
     }
 
     public void postProcess() {
+        writeModuleDescriptions();
         ClassBinaryData classClassData = binaryDataMap.get(ValueType.object("java.lang.Class"));
         if (classClassData != null) {
             int tag = (classClassData.start >> 3) | RuntimeObject.GC_MARKED;

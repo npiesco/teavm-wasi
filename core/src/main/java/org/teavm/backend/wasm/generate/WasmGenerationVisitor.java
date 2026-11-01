@@ -121,7 +121,6 @@ import org.teavm.model.TextLocation;
 import org.teavm.model.ValueType;
 import org.teavm.model.classes.VirtualTable;
 import org.teavm.runtime.Allocator;
-import org.teavm.runtime.ExceptionHandling;
 import org.teavm.runtime.RuntimeArray;
 import org.teavm.runtime.RuntimeClass;
 import org.teavm.runtime.ShadowStack;
@@ -136,8 +135,6 @@ class WasmGenerationVisitor implements StatementVisitor, ExprVisitor {
     private static final MethodReference MONITOR_EXIT = new MethodReference(Object.class,
             "monitorExit", Object.class, void.class);
     private static final int SWITCH_TABLE_THRESHOLD = 256;
-    static final MethodReference THROW_CLASS_CAST = new MethodReference(ExceptionHandling.class,
-            "throwClassCastException", void.class);
     private WasmGenerationContext context;
     private WasmClassGenerator classGenerator;
     private WasmTypeInference typeInference;
@@ -1526,7 +1523,9 @@ class WasmGenerationVisitor implements StatementVisitor, ExprVisitor {
         ifInstance.setResult(new WasmGetLocal(objectVar));
         block.getBody().add(new WasmDrop(ifInstance));
 
-        WasmCall throwCall = new WasmCall(context.names.forMethod(THROW_CLASS_CAST));
+        WasmCall throwCall = new WasmCall(context.names.forMethod(WasmGeneratorUtil.CLASS_CAST_FAIL));
+        throwCall.getArguments().add(new WasmGetLocal(objectVar));
+        throwCall.getArguments().add(new WasmInt32Constant(classGenerator.getClassPointer(target)));
         throwCall.setLocation(expr.getLocation());
         block.getBody().add(throwCall);
         block.getBody().add(new WasmGetLocal(objectVar));

@@ -220,7 +220,8 @@ public class TThrowable extends RuntimeException implements TSerializable {
     }
 
     // The JDK leaves out the frames that construct the throwable, the generated classes implementing lambdas (hidden
-    // classes there), and the frames that start a thread below its run method or main.
+    // classes there), the compiler's helpers that raise runtime checks, and the frames that start a thread below its
+    // run method or main.
     private TStackTraceElement[] trimStackTrace(TStackTraceElement[] frames) {
         int start = 0;
         while (start < frames.length && frames[start].getMethodName().equals("fillInStackTrace")) {
@@ -228,6 +229,10 @@ public class TThrowable extends RuntimeException implements TSerializable {
         }
         while (start < frames.length && frames[start].getMethodName().equals("<init>")
                 && isThrowableClass(frames[start].getClassName())) {
+            start++;
+        }
+        // A runtime check (a failed cast, say) raises through a compiler helper; the JDK reports the checking frame.
+        while (start < frames.length && frames[start].getClassName().startsWith("org.teavm.")) {
             start++;
         }
         int end = start;

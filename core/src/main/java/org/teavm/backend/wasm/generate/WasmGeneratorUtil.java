@@ -17,10 +17,16 @@ package org.teavm.backend.wasm.generate;
 
 import org.teavm.ast.OperationType;
 import org.teavm.backend.wasm.model.WasmType;
+import org.teavm.model.MethodReference;
 import org.teavm.model.ValueType;
 import org.teavm.model.util.VariableType;
 
 public final class WasmGeneratorUtil {
+    // Builds the JDK message, naming both classes and their modules; part of the class library.
+    public static final MethodReference CLASS_CAST_FAIL = new MethodReference(
+            "org.teavm.classlib.impl.ClassCastSupport", "fail", ValueType.object("java.lang.Object"),
+            ValueType.object("org.teavm.platform.PlatformClass"), ValueType.VOID);
+
     private WasmGeneratorUtil() {
     }
 

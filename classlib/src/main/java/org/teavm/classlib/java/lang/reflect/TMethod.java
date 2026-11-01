@@ -28,7 +28,7 @@ import org.teavm.platform.Platform;
 import org.teavm.platform.PlatformObject;
 import org.teavm.platform.PlatformSequence;
 
-public class TMethod extends TAccessibleObject implements TMember {
+public class TMethod extends TExecutable {
     private TClass<?> declaringClass;
     private String name;
     private int flags;
