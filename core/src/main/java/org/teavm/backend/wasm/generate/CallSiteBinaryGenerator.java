@@ -18,7 +18,9 @@ package org.teavm.backend.wasm.generate;
 import com.carrotsearch.hppc.ObjectIntHashMap;
 import com.carrotsearch.hppc.ObjectIntMap;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import org.teavm.backend.wasm.binary.BinaryWriter;
 import org.teavm.backend.wasm.binary.DataPrimitives;
@@ -62,6 +64,7 @@ public class CallSiteBinaryGenerator {
     private WasmClassGenerator classGenerator;
     private WasmStringPool stringPool;
     private ObjectIntMap<String> stringIndirectPointerCache = new ObjectIntHashMap<>();
+    private Map<String, String> moduleCache = new HashMap<>();
     private boolean obfuscated;
 
     public CallSiteBinaryGenerator(BinaryWriter writer, WasmClassGenerator classGenerator, WasmStringPool stringPool,
@@ -123,10 +126,10 @@ public class CallSiteBinaryGenerator {
                 }
             }
 
-            if (!obfuscated) {
-                binaryCallSite.setAddress(CALL_SITE_LOCATION,
-                        generateLocations(methodLocationCache, locationCache, callSite));
-            }
+            // Stack traces are part of the observable behaviour of Java programs, so locations are kept even when
+            // the module is minified.
+            binaryCallSite.setAddress(CALL_SITE_LOCATION,
+                    generateLocations(methodLocationCache, locationCache, callSite));
         }
 
         return firstCallSite;
@@ -159,7 +162,7 @@ public class CallSiteBinaryGenerator {
                     }
                     if (location.getClassName() != null) {
                         binaryMethodLocation.setAddress(METHOD_LOCATION_CLASS,
-                                getStringIndirectPointer(location.getClassName()));
+                                getStringIndirectPointer(qualifiedClassName(location.getClassName())));
                     }
                     if (location.getMethodName() != null) {
                         binaryMethodLocation.setAddress(METHOD_LOCATION_METHOD,
@@ -175,6 +178,29 @@ public class CallSiteBinaryGenerator {
         }
 
         return locationAddress;
+    }
+
+    // A class of the Java platform is reported as "module/class", as StackTraceElement prints it; class names
+    // cannot contain '/', so the runtime splits the two again. The module is the one that defines the class on the
+    // JDK running the compiler.
+    private String qualifiedClassName(String className) {
+        String module = moduleCache.computeIfAbsent(className, CallSiteBinaryGenerator::platformModule);
+        return module.isEmpty() ? className : module + "/" + className;
+    }
+
+    private static String platformModule(String className) {
+        try {
+            ClassLoader platform = (ClassLoader) ClassLoader.class.getMethod("getPlatformClassLoader").invoke(null);
+            Class<?> cls = Class.forName(className, false, platform);
+            if (cls.getClassLoader() != null && cls.getClassLoader() != platform) {
+                return "";
+            }
+            Object module = Class.class.getMethod("getModule").invoke(cls);
+            Object name = module.getClass().getMethod("getName").invoke(module);
+            return name != null ? (String) name : "";
+        } catch (ReflectiveOperationException | LinkageError e) {
+            return "";
+        }
     }
 
     private int getStringIndirectPointer(String str) {

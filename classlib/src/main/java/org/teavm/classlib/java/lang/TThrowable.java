@@ -20,6 +20,7 @@ import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.List;
 import org.teavm.classlib.PlatformDetector;
+import org.teavm.classlib.impl.lambda.LambdaNames;
 import org.teavm.classlib.java.io.TSerializable;
 import org.teavm.classlib.java.util.TArrays;
 import org.teavm.interop.Remove;
@@ -110,7 +111,7 @@ public class TThrowable extends RuntimeException implements TSerializable {
     @Override
     public Throwable fillInStackTrace() {
         if (PlatformDetector.isLowLevel()) {
-            stackTrace = (TStackTraceElement[]) (Object) ExceptionHandling.fillStackTrace();
+            stackTrace = trimStackTrace((TStackTraceElement[]) (Object) ExceptionHandling.fillStackTrace());
         }
         return this;
     }
@@ -216,6 +217,47 @@ public class TThrowable extends RuntimeException implements TSerializable {
         if (ourCause != null) {
             ourCause.printEnclosedStackTrace(s, trace, "Caused by: ", prefix, dejaVu);
         }
+    }
+
+    // The JDK leaves out the frames that construct the throwable, the generated classes implementing lambdas (hidden
+    // classes there), and the frames that start a thread below its run method or main.
+    private TStackTraceElement[] trimStackTrace(TStackTraceElement[] frames) {
+        int start = 0;
+        while (start < frames.length && frames[start].getMethodName().equals("fillInStackTrace")) {
+            start++;
+        }
+        while (start < frames.length && frames[start].getMethodName().equals("<init>")
+                && isThrowableClass(frames[start].getClassName())) {
+            start++;
+        }
+        int end = start;
+        while (end < frames.length && !isThreadEntry(frames[end])) {
+            end++;
+        }
+        int count = 0;
+        TStackTraceElement[] result = new TStackTraceElement[end - start];
+        for (int i = start; i < end; i++) {
+            if (!frames[i].getClassName().contains(LambdaNames.MARKER)) {
+                frames[i].recorded = true;
+                result[count++] = frames[i];
+            }
+        }
+        return count == result.length ? result : TArrays.copyOf(result, count);
+    }
+
+    private boolean isThrowableClass(String className) {
+        for (Class<?> cls = getClass(); cls != null; cls = cls.getSuperclass()) {
+            if (cls.getName().equals(className)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isThreadEntry(TStackTraceElement frame) {
+        String className = frame.getClassName();
+        return className.startsWith("org.teavm.runtime.")
+                || className.equals(Thread.class.getName()) && frame.getMethodName().equals(TThread.ENTRY_METHOD);
     }
 
     private TThrowable[] getOurSuppressed() {

@@ -46,7 +46,7 @@ public class CallSiteLocation {
         } else if (location.getInlining() == null) {
             return new CallSiteLocation[] {
                     new CallSiteLocation(
-                            convertFileName(location.getFileName()),
+                            convertFileName(location.getFileName(), callingMethod.getClassName()),
                             callingMethod.getClassName(),
                             callingMethod.getName(),
                             location.getLine())
@@ -55,7 +55,7 @@ public class CallSiteLocation {
             List<CallSiteLocation> result = new ArrayList<>();
             InliningInfo inlining = location.getInlining();
             result.add(new CallSiteLocation(
-                    convertFileName(location.getFileName()),
+                    convertFileName(location.getFileName(), inlining.getMethod().getClassName()),
                     inlining.getMethod().getClassName(),
                     inlining.getMethod().getName(),
                     location.getLine()));
@@ -64,7 +64,7 @@ public class CallSiteLocation {
                         ? inlining.getParent().getMethod()
                         : callingMethod;
                 result.add(new CallSiteLocation(
-                        convertFileName(inlining.getFileName()),
+                        convertFileName(inlining.getFileName(), method.getClassName()),
                         method.getClassName(),
                         method.getName(),
                         inlining.getLine()));
@@ -74,11 +74,26 @@ public class CallSiteLocation {
         }
     }
 
-    private static String convertFileName(String fileName) {
-        if (fileName != null) {
-            fileName = fileName.substring(fileName.lastIndexOf('/') + 1);
+    // The source file name a JDK would report: the class file's own, unless the class was compiled from a file in
+    // another package (a classlib class renamed to the JDK class it implements), whose name would be wrong. Such a
+    // class is named after the top-level class it belongs to, as javac names source files.
+    private static String convertFileName(String fileName, String className) {
+        if (fileName == null) {
+            return null;
         }
-        return fileName;
+        int slash = fileName.lastIndexOf('/');
+        String directory = slash >= 0 ? fileName.substring(0, slash).replace('/', '.') : "";
+        int dot = className.lastIndexOf('.');
+        String classPackage = dot >= 0 ? className.substring(0, dot) : "";
+        if (directory.equals(classPackage)) {
+            return fileName.substring(slash + 1);
+        }
+        String simpleName = className.substring(dot + 1);
+        int nested = simpleName.indexOf('$');
+        if (nested > 0) {
+            simpleName = simpleName.substring(0, nested);
+        }
+        return simpleName + ".java";
     }
 
     public String getFileName() {

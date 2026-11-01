@@ -77,7 +77,7 @@ public class LambdaMetafactorySubstitutor implements BootstrapMethodSubstitutor 
         }
 
         int subId = lambdaIdsByMethod.getOrDefault(callSite.getCaller(), 0);
-        ClassHolder implementor = new ClassHolder(key + "$lambda$_" + id + "_" + subId);
+        ClassHolder implementor = new ClassHolder(key + LambdaNames.MARKER + id + "_" + subId);
         lambdaIdsByMethod.put(callSite.getCaller(), subId + 1);
 
         implementor.setLevel(AccessLevel.PUBLIC);

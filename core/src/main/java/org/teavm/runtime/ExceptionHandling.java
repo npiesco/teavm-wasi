@@ -165,6 +165,11 @@ public final class ExceptionHandling {
     }
 
     @Unmanaged
+    public static void throwArithmeticException() {
+        throwException(new ArithmeticException("/ by zero"));
+    }
+
+    @Unmanaged
     public static void throwArrayIndexOutOfBoundsException(int index, int length) {
         throwException(arrayIndexOutOfBounds(index, length));
     }
@@ -223,8 +228,16 @@ public final class ExceptionHandling {
                         MethodLocation methodLocation = location.method;
                         StackTraceElement element;
                         if (methodLocation != null) {
-                            element = new StackTraceElement(
-                                    methodLocation.className != null ? methodLocation.className.value : "",
+                            String className = methodLocation.className != null
+                                    ? methodLocation.className.value : "";
+                            String moduleName = null;
+                            int moduleEnd = className.indexOf('/');
+                            if (moduleEnd >= 0) {
+                                moduleName = className.substring(0, moduleEnd);
+                                className = className.substring(moduleEnd + 1);
+                            }
+                            element = new StackTraceElement(moduleName == null ? "app" : null, moduleName, null,
+                                    className,
                                     methodLocation.methodName != null ? methodLocation.methodName.value : "",
                                     methodLocation.fileName != null ? methodLocation.fileName.value : null,
                                     location.lineNumber);

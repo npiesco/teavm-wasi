@@ -57,12 +57,16 @@ public class CheckInstructionTransformation {
     private BasicBlock returnBlock;
     private BasicBlock next;
     private List<BasicBlock> throwBlocks = new ArrayList<>();
+    private Set<Instruction> checkedDivisions = new HashSet<>();
+    private Set<Variable> nonZeroConstants = new HashSet<>();
 
     public void apply(Program program, ValueType returnType) {
         BasicBlockSplitter splitter = new BasicBlockSplitter(program);
 
         returnBlock = null;
         throwBlocks.clear();
+        checkedDivisions.clear();
+        findNonZeroConstants(program);
         int count = program.basicBlockCount();
         for (int i = 0; i < count; ++i) {
             next = program.basicBlockAt(i);
@@ -75,6 +79,10 @@ public class CheckInstructionTransformation {
                         replaceNullCheck(splitter, program, (NullCheckInstruction) instruction);
                     } else if (instruction instanceof BoundCheckInstruction) {
                         replaceBoundCheck(splitter, program, (BoundCheckInstruction) instruction);
+                    } else if (instruction instanceof BinaryInstruction
+                            && needsZeroCheck((BinaryInstruction) instruction)) {
+                        insertZeroCheck(splitter, program, (BinaryInstruction) instruction);
+                        break;
                     }
                 }
             }
@@ -265,6 +273,89 @@ public class CheckInstructionTransformation {
         assign.setReceiver(boundCheck.getReceiver());
         assign.setLocation(boundCheck.getLocation());
         continueBlock.addFirst(assign);
+    }
+
+    // Divisors that are constants other than zero, defined once, need no check.
+    private void findNonZeroConstants(Program program) {
+        nonZeroConstants.clear();
+        DefinitionExtractor defExtractor = new DefinitionExtractor();
+        Set<Variable> redefined = new HashSet<>();
+        Set<Variable> defined = new HashSet<>();
+        for (BasicBlock block : program.getBasicBlocks()) {
+            for (Phi phi : block.getPhis()) {
+                if (!defined.add(phi.getReceiver())) {
+                    redefined.add(phi.getReceiver());
+                }
+            }
+            for (Instruction instruction : block) {
+                instruction.acceptVisitor(defExtractor);
+                for (Variable variable : defExtractor.getDefinedVariables()) {
+                    if (!defined.add(variable)) {
+                        redefined.add(variable);
+                    }
+                }
+                if (instruction instanceof IntegerConstantInstruction
+                        && ((IntegerConstantInstruction) instruction).getConstant() != 0) {
+                    nonZeroConstants.add(((IntegerConstantInstruction) instruction).getReceiver());
+                } else if (instruction instanceof LongConstantInstruction
+                        && ((LongConstantInstruction) instruction).getConstant() != 0) {
+                    nonZeroConstants.add(((LongConstantInstruction) instruction).getReceiver());
+                }
+            }
+        }
+        nonZeroConstants.removeAll(redefined);
+    }
+
+    private boolean needsZeroCheck(BinaryInstruction binary) {
+        if (binary.getOperation() != BinaryOperation.DIVIDE && binary.getOperation() != BinaryOperation.MODULO) {
+            return false;
+        }
+        if (binary.getOperandType() != NumericOperandType.INT && binary.getOperandType() != NumericOperandType.LONG) {
+            return false;
+        }
+        return !checkedDivisions.contains(binary) && !nonZeroConstants.contains(binary.getSecondOperand());
+    }
+
+    // Java's integer division and remainder throw ArithmeticException for a zero divisor.
+    private void insertZeroCheck(BasicBlockSplitter splitter, Program program, BinaryInstruction division) {
+        checkedDivisions.add(division);
+        BasicBlock block = division.getBasicBlock();
+        BasicBlock continueBlock = splitter.split(block, division);
+        division.delete();
+        continueBlock.addFirst(division);
+
+        BasicBlock throwBlock = program.createBasicBlock();
+        throwBlocks.add(throwBlock);
+        InvokeInstruction throwArithmetic = new InvokeInstruction();
+        throwArithmetic.setType(InvocationType.SPECIAL);
+        throwArithmetic.setMethod(new MethodReference(ExceptionHandling.class, "throwArithmeticException",
+                void.class));
+        throwArithmetic.setLocation(division.getLocation());
+        throwBlock.add(throwArithmetic);
+        jumpToReturn(program, division, throwBlock);
+
+        Variable divisor = division.getSecondOperand();
+        if (division.getOperandType() == NumericOperandType.LONG) {
+            LongConstantInstruction zero = new LongConstantInstruction();
+            zero.setReceiver(program.createVariable());
+            zero.setLocation(division.getLocation());
+            block.add(zero);
+            BinaryInstruction compare = new BinaryInstruction(BinaryOperation.COMPARE, NumericOperandType.LONG);
+            compare.setFirstOperand(divisor);
+            compare.setSecondOperand(zero.getReceiver());
+            compare.setReceiver(program.createVariable());
+            compare.setLocation(division.getLocation());
+            block.add(compare);
+            divisor = compare.getReceiver();
+        }
+        BranchingInstruction jumpIfZero = new BranchingInstruction(BranchingCondition.EQUAL);
+        jumpIfZero.setOperand(divisor);
+        jumpIfZero.setConsequent(throwBlock);
+        jumpIfZero.setAlternative(continueBlock);
+        jumpIfZero.setLocation(division.getLocation());
+        block.add(jumpIfZero);
+
+        next = continueBlock;
     }
 
     private void jumpToReturn(Program program, Instruction instruction, BasicBlock throwBlock) {

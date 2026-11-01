@@ -191,7 +191,11 @@ class WasmGenerationVisitor implements StatementVisitor, ExprVisitor {
                 generateBinary(WasmIntBinaryOperation.MUL, WasmFloatBinaryOperation.MUL, expr);
                 break;
             case DIVIDE:
-                generateBinary(WasmIntBinaryOperation.DIV_SIGNED, WasmFloatBinaryOperation.DIV, expr);
+                if (expr.getType() == OperationType.INT || expr.getType() == OperationType.LONG) {
+                    generateIntegerDivision(expr);
+                } else {
+                    generateBinary(WasmIntBinaryOperation.DIV_SIGNED, WasmFloatBinaryOperation.DIV, expr);
+                }
                 break;
             case MODULO: {
                 switch (expr.getType()) {
@@ -349,6 +353,41 @@ class WasmGenerationVisitor implements StatementVisitor, ExprVisitor {
                 return double.class;
         }
         throw new AssertionError(type.toString());
+    }
+
+    // WebAssembly traps on MIN_VALUE / -1, where Java's division overflows to MIN_VALUE, which is the negation of the
+    // dividend; the zero divisor is checked before the division is reached.
+    private void generateIntegerDivision(BinaryExpr expr) {
+        boolean isInt = expr.getType() == OperationType.INT;
+        WasmIntType intType = isInt ? WasmIntType.INT32 : WasmIntType.INT64;
+        WasmType type = isInt ? WasmType.INT32 : WasmType.INT64;
+        accept(expr.getFirstOperand());
+        WasmExpression first = result;
+        accept(expr.getSecondOperand());
+        WasmExpression second = result;
+
+        WasmLocal dividend = getTemporary(type);
+        WasmLocal divisor = getTemporary(type);
+        WasmBlock block = new WasmBlock(false);
+        block.setType(type);
+        block.getBody().add(new WasmSetLocal(dividend, first));
+        block.getBody().add(new WasmSetLocal(divisor, second));
+        WasmExpression minusOne = isInt ? new WasmInt32Constant(-1) : new WasmInt64Constant(-1);
+        WasmExpression zero = isInt ? new WasmInt32Constant(0) : new WasmInt64Constant(0);
+        WasmConditional conditional = new WasmConditional(new WasmIntBinary(intType, WasmIntBinaryOperation.EQ,
+                new WasmGetLocal(divisor), minusOne));
+        conditional.setType(type);
+        conditional.getThenBlock().setType(type);
+        conditional.getElseBlock().setType(type);
+        conditional.getThenBlock().getBody().add(new WasmIntBinary(intType, WasmIntBinaryOperation.SUB, zero,
+                new WasmGetLocal(dividend)));
+        conditional.getElseBlock().getBody().add(new WasmIntBinary(intType, WasmIntBinaryOperation.DIV_SIGNED,
+                new WasmGetLocal(dividend), new WasmGetLocal(divisor)));
+        block.getBody().add(conditional);
+        block.setLocation(expr.getLocation());
+        releaseTemporary(dividend);
+        releaseTemporary(divisor);
+        result = block;
     }
 
     private void generateAnd(BinaryExpr expr) {

@@ -27,6 +27,8 @@ public class TThread extends TObject implements TRunnable {
     public static final int MIN_PRIORITY = 1;
     public static final int NORM_PRIORITY = 5;
     public static final int MAX_PRIORITY = 10;
+    // The method that starts every thread but main; stack traces end above it.
+    static final String ENTRY_METHOD = "runThread";
     private static final TThreadGroup SYSTEM_GROUP = new TThreadGroup(null, "system", true);
     private static final TThreadGroup MAIN_GROUP = new TThreadGroup(SYSTEM_GROUP, "main");
     private static int nextId = 1;

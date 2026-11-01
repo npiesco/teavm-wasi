@@ -20,19 +20,48 @@ import org.teavm.classlib.java.io.TSerializable;
 import org.teavm.classlib.java.util.TObjects;
 
 public final class TStackTraceElement extends TObject implements TSerializable {
+    private String classLoaderName;
+    private String moduleName;
+    private String moduleVersion;
     private String declaringClass;
     private String methodName;
     private String fileName;
     private int lineNumber;
+    // Set for frames the runtime records, as the JDK's VM-filled frames: they leave out the built-in "app" class
+    // loader and the versions of platform modules, which elements built by programs print.
+    transient boolean recorded;
 
     public TStackTraceElement(String declaringClass, String methodName, String fileName, int lineNumber) {
-        if (declaringClass == null || methodName == null) {
-            throw new TNullPointerException();
+        this(null, null, null, declaringClass, methodName, fileName, lineNumber);
+    }
+
+    public TStackTraceElement(String classLoaderName, String moduleName, String moduleVersion, String declaringClass,
+            String methodName, String fileName, int lineNumber) {
+        if (declaringClass == null) {
+            throw new TNullPointerException("Declaring class is null");
         }
+        if (methodName == null) {
+            throw new TNullPointerException("Method name is null");
+        }
+        this.classLoaderName = classLoaderName;
+        this.moduleName = moduleName;
+        this.moduleVersion = moduleVersion;
         this.declaringClass = declaringClass;
         this.methodName = methodName;
         this.fileName = fileName;
         this.lineNumber = lineNumber;
+    }
+
+    public String getClassLoaderName() {
+        return classLoaderName;
+    }
+
+    public String getModuleName() {
+        return moduleName;
+    }
+
+    public String getModuleVersion() {
+        return moduleVersion;
     }
 
     public String getClassName() {
@@ -52,12 +81,18 @@ public final class TStackTraceElement extends TObject implements TSerializable {
     }
 
     public boolean isNativeMethod() {
-        return fileName == null;
+        return lineNumber == -2;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(declaringClass, methodName, fileName, lineNumber);
+        int result = 31 * declaringClass.hashCode() + methodName.hashCode();
+        result = 31 * result + Objects.hashCode(classLoaderName);
+        result = 31 * result + Objects.hashCode(moduleName);
+        result = 31 * result + Objects.hashCode(moduleVersion);
+        result = 31 * result + Objects.hashCode(fileName);
+        result = 31 * result + lineNumber;
+        return result;
     }
 
     @Override
@@ -69,7 +104,10 @@ public final class TStackTraceElement extends TObject implements TSerializable {
             return false;
         }
         TStackTraceElement other = (TStackTraceElement) obj;
-        return TObjects.equals(declaringClass, other.declaringClass)
+        return TObjects.equals(classLoaderName, other.classLoaderName)
+                && TObjects.equals(moduleName, other.moduleName)
+                && TObjects.equals(moduleVersion, other.moduleVersion)
+                && TObjects.equals(declaringClass, other.declaringClass)
                 && TObjects.equals(methodName, other.methodName)
                 && TObjects.equals(fileName, other.fileName)
                 && lineNumber == other.lineNumber;
@@ -78,14 +116,29 @@ public final class TStackTraceElement extends TObject implements TSerializable {
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
-        int index = declaringClass.lastIndexOf('.');
-        sb.append(declaringClass.substring(index + 1)).append('.').append(methodName).append('(');
-        if (fileName != null) {
-            sb.append(fileName).append(':').append(lineNumber);
-        } else {
-            sb.append("Unknown Source");
+        if (classLoaderName != null && !classLoaderName.isEmpty() && !(recorded && classLoaderName.equals("app"))) {
+            sb.append(classLoaderName).append('/');
         }
-        sb.append(")");
-        return sb.toString();
+        if (moduleName != null && !moduleName.isEmpty()) {
+            sb.append(moduleName);
+            if (moduleVersion != null && !moduleVersion.isEmpty() && !recorded) {
+                sb.append('@').append(moduleVersion);
+            }
+        }
+        if (sb.length() > 0) {
+            sb.append('/');
+        }
+        sb.append(declaringClass).append('.').append(methodName).append('(');
+        if (isNativeMethod()) {
+            sb.append("Native Method");
+        } else if (fileName == null) {
+            sb.append("Unknown Source");
+        } else {
+            sb.append(fileName);
+            if (lineNumber >= 0) {
+                sb.append(':').append(lineNumber);
+            }
+        }
+        return sb.append(')').toString();
     }
 }
